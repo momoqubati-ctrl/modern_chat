@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "NewChat",
+    "slug": "newchat",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "extra": {
+      "supportsRTL": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.newchat.app"
+    },
+    "android": {
+      "package": "com.newchat.app"
+    }
+  }
+}

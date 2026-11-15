@@ -1,0 +1,29 @@
+{
+  "name": "@newchat/core-client",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@newchat/shared": "workspace:*",
+    "socket.io-client": "^4.8.1",
+    "socket.io-msgpack-parser": "^3.0.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

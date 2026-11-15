@@ -1,0 +1,23 @@
+{
+  "name": "newchat",
+  "version": "2.0.0",
+  "private": true,
+  "description": "NewChat - Modern High-Scale Social & Real-Time Chat Platform (100% Parity)",
+  "packageManager": "pnpm@11.1.3",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "db:push": "pnpm --filter @newchat/db push",
+    "db:generate": "pnpm --filter @newchat/db generate",
+    "db:migrate-legacy": "pnpm --filter @newchat/db migrate:legacy",
+    "verify:parity": "tsx scripts/verify-parity.ts"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.2"
+  }
+}

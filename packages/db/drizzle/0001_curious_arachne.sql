@@ -1,0 +1,1 @@
+ALTER TABLE "idempotency_records" ADD COLUMN "locked_unit_coin" bigint NOT NULL;

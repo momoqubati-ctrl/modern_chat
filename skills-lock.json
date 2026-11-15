@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "skills": {
+    "nodejs-performance": {
+      "source": "microlinkhq/skills",
+      "sourceType": "github",
+      "skillPath": "nodejs-performance/SKILL.md",
+      "computedHash": "abdec78aa79475173d0e48417225aed8ebcd4cd5b54969cea4334fd2a62acee7"
+    },
+    "react-patterns": {
+      "source": "oakoss/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-patterns/SKILL.md",
+      "computedHash": "8d90200787c9e9ae35e33c4551dd496a1a47c538c38e8dabf02325b0d47e0116"
+    },
+    "react-performance": {
+      "source": "oakoss/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-performance/SKILL.md",
+      "computedHash": "f3a8a142d6732c322627beca8170d0e080a7badd363e51875b7d62231a0a21fe"
+    },
+    "react-vite-best-practices": {
+      "source": "AsyrafHussin/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-vite-best-practices/SKILL.md",
+      "computedHash": "db8e3e2224aa28562593fb65b9e588fa71a5568e641958b935006bd288d71f4c"
+    },
+    "web-perf": {
+      "source": "cloudflare/skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-perf/SKILL.md",
+      "computedHash": "2716bf9bfafe4d8407b55c5213a143aea248686c4af92f8b43fc35327eaae41d"
+    },
+    "web-performance": {
+      "source": "Quegenx/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-ui/web-performance/SKILL.md",
+      "computedHash": "5c64531ae31d8c71f27ad378913685756f7de0f3e357f3f3c84b764fc97a6a25"
+    }
+  }
+}
