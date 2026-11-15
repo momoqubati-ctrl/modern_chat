@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<meta name="description" content="A browser-based Carrom board game built with HTML5 canvas and JavaScript." />
+	<title>Carrom - Online Board Game</title>
+	<link rel="stylesheet" type="text/css" href="css/main.css?v=7">
+	<style>
+		/* Force hide profile inputs if auto-filled */
+		.lobby-profile-bar {
+			display: none !important;
+		}
+
+		/* Ensure dialog is centered and responsive */
+		.roomPopup {
+			max-width: 440px !important;
+			width: 92vw !important;
+			margin: 0 auto !important;
+		}
+	</style>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+	<script type="text/javascript" src="js/jquery.js"></script>
+	<script src="https://cdn.socket.io/4.8.3/socket.io.msgpack.min.js"></script>
+</head>
+
+<body class="bodybgblue">
+	<canvas id="effects">Your browser does not support the HTML5 canvas tag.</canvas>
+
+	<div id="game-wrapper">
+		<!-- Top Bar -->
+		<div class="top-bar">
+			<div class="top-bar-left">
+				<button class="icon-circle" aria-label="Back">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+						stroke-width="2.5">
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+			</div>
+			<div class="top-bar-center">
+				<div class="room-name-text">غرفة اللعبة</div>
+				<div class="room-id-text" id="roomBadge">الغرفة: -</div>
+			</div>
+			<div class="top-bar-right">
+				<div class="avatar-ring gold">
+					<img id="playerBadgeAvatar" class="playerBadgeAvatar" src="" alt="Player avatar" />
+				</div>
+			</div>
+		</div>
+
+		<!-- Header Row -->
+		<div class="header-row">
+			<div class="header-side">
+				<div class="circle-btn green s">
+					<img id="s1" src="./assets/images/s1.svg" width="26" height="26" />
+				</div>
+			</div>
+			<div class="header-center">
+				<img class="carrom-logo-img" src="./assets/images/logo_premium.png" alt="CARROM"
+					onerror="this.style.display='none';this.nextElementSibling.style.display='block'" />
+				<span class="carrom-logo-fallback" style="display:none">CARROM</span>
+			</div>
+			<div class="header-side" style="display: flex; gap: 8px;">
+				<div class="circle-btn blue" id="refreshSyncBtn" title="تحديث وتزامن اللوحة"
+					style="background-color: #2196F3; cursor: pointer;">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+						stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+						<path d="M21 3v5h-5"></path>
+					</svg>
+				</div>
+				<div class="circle-btn green b b4" id="config">
+					<img src="./assets/images/help.svg" width="26" height="26" />
+				</div>
+			</div>
+		</div>
+
+		<!-- Score Bar (Moved Above Board) -->
+		<div class="score-bar">
+			<div class="player-side player-left">
+				<div class="player-avatar-small"><img id="player1Avatar" src="./assets/images/game-icon.jpg" alt="P1" />
+				</div>
+				<div class="jumbotron one">
+					<h3><b><span id="player1Label">اللاعب 1</span></b></h3>
+					<p><b><span id="0">0</span> </b></p>
+				</div>
+			</div>
+			<div class="turn-badge-area">
+				<span id="turnBadge" class="networkHint turn-pill">في الانتظار</span>
+			</div>
+			<div class="player-side player-right">
+				<div class="jumbotron two">
+					<h3><b><span id="player2Label">اللاعب 2</span></b></h3>
+					<p><b> <span id="1">0</span></b></p>
+				</div>
+				<div class="player-avatar-small"><img id="player2Avatar" src="./assets/images/game-icon.jpg" alt="P2" />
+				</div>
+			</div>
+		</div>
+
+		<!-- Board Container -->
+		<div id="container">
+			<div id="msgs">
+				<div id="msgbox">Welcome!</div>
+			</div>
+			<div class="board-wrapper">
+				<canvas id="bg" width="520" height="520">Your browser does not support the HTML5 canvas tag.</canvas>
+				<canvas id="Carrom" width="520" height="520">Your browser does not support the HTML5 canvas
+					tag.</canvas>
+				<canvas id="Striker" width="520" height="520">Your browser does not support the HTML5 canvas
+					tag.</canvas>
+			</div>
+		</div>
+
+		<!-- Inline Chat Area (Below Board) -->
+		<div class="inline-chat-container">
+			<div id="inlineChatMessages" class="inline-chat-messages">
+				<!-- Chat messages will be appended here -->
+			</div>
+			<div class="inline-chat-input-area">
+				<div class="gift-circle-small">
+					<img src="./assets/images/gift_premium.png" alt="Gift"
+						onerror="this.parentElement.innerHTML='🎁'" />
+				</div>
+				<input id="inlineChatInput" type="text" placeholder="اكتب رسالة..." maxlength="200"
+					autocomplete="off" />
+				<button id="inlineSendChatBtn" class="chat-send-btn-small">
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+					</svg>
+				</button>
+			</div>
+		</div>
+
+		<!-- Hidden: playerBadge for JS compatibility -->
+		<div style="display:none">
+			<p id="playerBadge" class="networkValue">Not joined</p>
+		</div>
+
+		<!-- Hidden Options (preserves ALL original selectors for JS) -->
+		<div class="options-panel" style="display:none">
+			<div class="title">
+				<h1>C</h1>
+				<h1>A</h1>
+				<h1>R</h1>
+				<h1>R</h1>
+				<h1>O</h1>
+				<h1>M</h1>
+			</div>
+			<div class="controls">
+				<div class="networkCard"></div>
+				<div class="con">
+					<div class="b b1 active"></div>
+					<div class="b b2"></div>
+					<div class="b b3"></div>
+				</div>
+				<div class="con">
+					<div class="g g1 active" style="background-color:#ebdfc3;">
+						<img src="./assets/images/windRose.svg" width="31" height="31" />
+					</div>
+					<div class="g g2" style="background-color:#ebdfc3;">
+						<img src="./assets/images/windRose1.svg" width="31" height="31" />
+					</div>
+				</div>
+				<div class="con">
+					<div class="bg bg1 blue active"></div>
+					<div class="bg bg2 black"></div>
+					<div class="bg bg3 imgbg"></div>
+					<div class="bg bg4 imgbg1"></div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Popups (ALL IDs and classes preserved exactly) -->
+		<div id="popup" class="popup win-popup">
+			<div class="win-trophy">🏆</div>
+			<h2 class="win-title">انتهت اللعبة</h2>
+			<div class="win-avatar-wrap">
+				<img id="winnerAvatar" class="win-avatar-img" src="" alt="Winner" />
+			</div>
+			<h3 class="win-name" id="winnerName">اللاعب 1</h3>
+			<div class="win-score-label">فاز في المباراة!</div>
+			<div class="win-scores">
+				<div class="win-score-card">
+					<span class="win-score-player" id="winScoreP1Name">اللاعب 1</span>
+					<span class="win-score-value" id="winScoreP1">0</span>
+				</div>
+				<div class="win-score-divider">—</div>
+				<div class="win-score-card">
+					<span class="win-score-player" id="winScoreP2Name">اللاعب 2</span>
+					<span class="win-score-value" id="winScoreP2">0</span>
+				</div>
+			</div>
+			<div class="win-buttons">
+				<a href="javascript:void(0)" id="playAgain" class="win-btn win-btn-play">🔄 العب مجدداً</a>
+				<a href="javascript:void(0)" id="exitGame" class="win-btn win-btn-exit">🚪 خروج</a>
+			</div>
+			<span id="w1" style="display:none">1</span>
+		</div>
+
+		<div id="roomPopup" class="popup popup2 roomPopup lobbyPopup">
+			<!-- Profile Setup -->
+			<div class="lobby-profile-bar">
+				<div class="lobby-avatar-edit">
+					<img id="lobbyAvatarPreview" src="./assets/images/game-icon.jpg" alt="You" />
+				</div>
+				<div class="lobby-profile-inputs">
+					<input id="playerNameInput" type="text" maxlength="24" placeholder="اسمك" autocomplete="off" />
+					<input id="playerAvatarInput" type="text" maxlength="300"
+						placeholder="رابط صورة الملف الشخصي (اختياري)" autocomplete="off" />
+				</div>
+			</div>
+
+			<!-- Game Selection Cards -->
+			<div class="lobby-games-grid">
+				<div class="game-card game-card-carrom" id="createRoomBtn">
+					<img src="./assets/images/game-icon.png" alt="Carrom" class="game-card-icon" />
+					<div class="game-card-name">كيرم</div>
+					<div class="game-card-players">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+							<path
+								d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+						</svg>
+						<span>العب</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- Room Header -->
+			<div class="lobby-rooms-header">
+				<span class="lobby-rooms-title">غرف الألعاب</span>
+				<a href="javascript:void(0)" id="refreshRoomsBtn" class="lobby-refresh-btn">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+						<path
+							d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+					</svg>
+				</a>
+			</div>
+
+			<!-- Rooms List -->
+			<div id="roomsList" class="roomsList"></div>
+
+			<p id="roomStatus" class="roomStatus">متصل. قم بإنشاء غرفة كيرم أو انضم من قائمة الانتظار.</p>
+		</div>
+
+		<!-- Loading Overlay -->
+		<div id="loadingOverlay"
+			style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:white;font-family:'Outfit',sans-serif;backdrop-filter:blur(5px);">
+			<div class="spinner"
+				style="width:60px;height:60px;border:6px solid rgba(255,255,255,0.1);border-top:6px solid #d9a55a;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:25px;box-shadow: 0 0 15px rgba(217, 165, 90, 0.3);">
+			</div>
+			<div style="font-size:22px;font-weight:700;letter-spacing:0.5px;text-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+				جاري التحميل... يرجى الانتظار</div>
+			<style>
+				@keyframes spin {
+					0% {
+						transform: rotate(0deg);
+					}
+
+					100% {
+						transform: rotate(360deg);
+					}
+				}
+			</style>
+		</div>
+
+		<div id="vsOverlay" class="popup vsOverlay">
+			<div class="vsGame">CARROM</div>
+			<div class="vsPlayers">
+				<div class="vsCard left">
+					<img id="vsAvatarOne" class="vsAvatarImage" src="" alt="Player one avatar" />
+					<div class="vsAvatar">You</div>
+					<div id="vsPlayerOne" class="vsName">Player 1</div>
+				</div>
+				<div class="vsText">VS</div>
+				<div class="vsCard right">
+					<img id="vsAvatarTwo" class="vsAvatarImage" src="" alt="Player two avatar" />
+					<div class="vsAvatar">Rival</div>
+					<div id="vsPlayerTwo" class="vsName">Player 2</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="popup1" class="popup">
+			<h2>دليل اللعبة</h2>
+			<div id="msgs1">
+				<ul style="text-align: right; direction: rtl;">
+					<li><img src="./assets/images/black.png" /> 10 <img src="./assets/images/white.png" /> 20 <img
+							src="./assets/images/red.png" /> 50</li>
+					<li>حرك المضرب بالفأرة أو اللمس.</li>
+					<li>اضغط للتثبيت.</li>
+					<li>اضغط Escape لإعادة التموضع.</li>
+					<li>بعد التثبيت، اسحب للخلف للتسديد.</li>
+					<li>اضغط للتسديد.</li>
+					<li>إصابة الأقراص المحددة بالأزرق تسبب جزاء.</li>
+				</ul>
+			</div>
+			<a href="javascript:void(0)" id="start" class="myButton2">ابدأ</a>
+		</div>
+	</div>
+
+	<img id="cc" src="./assets/images/cc.jpg" style="display: none;" />
+
+	<script type="text/javascript" src="js/shapeFunc.js"></script>
+	<script type="text/javascript" src="js/boardSetup.js"></script>
+	<script type="text/javascript" src="js/coinFunc.js?v=2"></script>
+	<script type="text/javascript" src="js/main.js?v=7"></script>
+	<script type="text/javascript" src="js/rain.js"></script>
+	<script type="text/javascript">
+		var c = document.getElementById("Carrom");
+		var rect = c.getBoundingClientRect();
+		initializePlayers(2);
+	</script>
+</body>
+
+</html>
