@@ -18,7 +18,7 @@ function envNum(name: string, fallback: number): number {
 
 export const gatewayConfig = {
   nodeEnv: envStr("NODE_ENV", "development"),
-  port: envNum("GATEWAY_PORT", 3004),
+  port: envNum("PORT", envNum("GATEWAY_PORT", 3004)),
   host: envStr("GATEWAY_HOST", "0.0.0.0"),
   gatewayId: `${process.pid}-${crypto.randomBytes(4).toString("hex")}`,
   redisUrl: envStr("REDIS_URL", "redis://127.0.0.1:6379"),

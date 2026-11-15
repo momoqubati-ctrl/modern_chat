@@ -26,7 +26,7 @@ const jwtSecret = envStr("JWT_SECRET", "dev-newchat-jwt-secret-change-in-prod-32
 
 export const apiConfig = {
   nodeEnv: envStr("NODE_ENV", "development"),
-  port: envNum("API_PORT", 3003),
+  port: envNum("PORT", envNum("API_PORT", 3003)),
   host: envStr("API_HOST", "0.0.0.0"),
   // Only trust proxy headers (X-Forwarded-For / CF-Connecting-IP ...) when the app
   // actually runs behind a reverse proxy. Otherwise clients could spoof their IP.

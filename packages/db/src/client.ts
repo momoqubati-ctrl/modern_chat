@@ -12,11 +12,22 @@ export function createDbPool(connectionString?: string) {
 
   const max = Math.max(10, parseInt(process.env.PG_POOL_MAX || "30", 10) || 30);
 
+  const isSslRequired =
+    process.env.DATABASE_SSL === "true" ||
+    process.env.DATABASE_SSL === "1" ||
+    (process.env.DATABASE_SSL !== "false" &&
+      (url.includes("supabase.com") ||
+        url.includes("sslmode=require") ||
+        url.includes("pooler.supabase.com")));
+
+  const ssl = isSslRequired ? { rejectUnauthorized: false } : undefined;
+
   return new Pool({
     connectionString: url,
     max,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    ssl,
   });
 }
 
