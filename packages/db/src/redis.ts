@@ -7,10 +7,8 @@ export function getRedis(url?: string): Redis {
     const redisUrl = url || process.env.REDIS_URL || "redis://127.0.0.1:6379";
     sharedRedis = new Redis(redisUrl, {
       maxRetriesPerRequest: 1,
-      enableReadyCheck: false,
       lazyConnect: false,
-      enableOfflineQueue: false,
-      commandTimeout: 2000,
+      enableReadyCheck: true,
       retryStrategy(times) {
         return Math.min(times * 1000, 15000);
       },

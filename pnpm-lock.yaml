@@ -35,6 +35,9 @@ importers:
       '@newchat/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@newchat/gateway':
+        specifier: workspace:*
+        version: link:../gateway
       '@newchat/shared':
         specifier: workspace:*
         version: link:../../packages/shared

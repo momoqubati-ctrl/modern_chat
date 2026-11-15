@@ -41,8 +41,9 @@ const ACTION_SHORTHAND_CMDS = new Set([
   "gift_icon",
 ]);
 
-async function startGateway() {
-  const httpServer = http.createServer((req, res) => {
+export async function startGateway(externalHttpServer?: http.Server): Promise<{ io: Server; shutdown: () => Promise<void> }> {
+  const isStandalone = !externalHttpServer;
+  const httpServer = externalHttpServer || http.createServer((req, res) => {
     if (req.url === "/healthz" || req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
       res.end(
@@ -684,23 +685,38 @@ async function startGateway() {
     talkingBotCoordinator.stopTalkLoop();
     await busBridge.stop();
     io.close();
-    httpServer.close();
-    await closeRedis();
-    await closeDb();
-    process.exit(0);
+    if (isStandalone) {
+      httpServer.close();
+      await closeRedis();
+      await closeDb();
+      process.exit(0);
+    }
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  if (isStandalone) {
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
 
-  httpServer.listen(gatewayConfig.port, gatewayConfig.host, () => {
-    console.log(
-      `[Gateway] Socket.IO (MsgPack) listening on http://${gatewayConfig.host}:${gatewayConfig.port}`,
-    );
-  });
+    httpServer.listen(gatewayConfig.port, gatewayConfig.host, () => {
+      console.log(
+        `[Gateway] Socket.IO (MsgPack) listening on http://${gatewayConfig.host}:${gatewayConfig.port}`,
+      );
+    });
+  }
+
+  return { io, shutdown };
 }
 
-startGateway().catch((err) => {
-  console.error("[Gateway] Fatal startup error:", err);
-  process.exit(1);
-});
+const isMain =
+  Boolean(process.argv[1]) &&
+  (process.argv[1].endsWith("gateway/src/index.ts") ||
+    process.argv[1].endsWith("gateway/dist/index.js") ||
+    process.argv[1].endsWith("gateway\\src\\index.ts") ||
+    process.argv[1].endsWith("gateway\\dist\\index.js"));
+
+if (isMain) {
+  startGateway().catch((err) => {
+    console.error("[Gateway] Fatal startup error:", err);
+    process.exit(1);
+  });
+}

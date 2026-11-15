@@ -7,6 +7,7 @@ import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import { closeDb, closeRedis } from "@newchat/db";
+import { startGateway } from "@newchat/gateway";
 import { apiConfig } from "./config.js";
 import { closeQueues } from "./lib/queues.js";
 import { ddosConsumeRequest, getRequestCountry, getRequestRealIp } from "./lib/runtime.js";
@@ -167,7 +168,19 @@ async function start() {
     return reply;
   });
 
+  let gatewayShutdown: (() => Promise<void>) | null = null;
+  try {
+    const gw = await startGateway(app.server);
+    gatewayShutdown = gw.shutdown;
+    app.log.info("[Gateway] Embedded Socket.IO real-time gateway mounted onto Fastify HTTP server");
+  } catch (err) {
+    app.log.error({ err }, "[Gateway] Failed to mount embedded Socket.IO gateway");
+  }
+
   const shutdown = async () => {
+    if (gatewayShutdown) {
+      await gatewayShutdown().catch(() => {});
+    }
     await app.close();
     await closeQueues();
     await closeRedis();

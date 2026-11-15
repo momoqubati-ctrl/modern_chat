@@ -826,53 +826,58 @@ export async function ddosConsumeRequest(
   if (!apiConfig.ddosEnabled) {
     return { allowed: true, statusCode: 200, retryAfterMs: 0, message: "" };
   }
-  const safeIp = ip || "unknown";
-  if (await ddosIsBlockedIp(safeIp)) {
-    await getRedis().hincrby(DDOS_METRICS_KEY, "httpBlocked", 1).catch(() => 0);
-    return {
-      allowed: false,
-      statusCode: 429,
-      retryAfterMs: 60_000,
-      message: "Too many requests from this IP",
-    };
-  }
-
-  const strict = await ddosGetStrictMode();
-  const mode = strict ? DDOS_STRICT_CFG : DDOS_NORMAL_CFG;
-  let limit = mode.httpLimit;
-  const lower = pathName.toLowerCase();
-  if (lower.startsWith("/socket.io/") || lower.startsWith("/cp/cp.nd") || lower.startsWith("/cp.nd")) {
-    limit = Math.max(20, Math.floor(limit * 0.6));
-  }
-
-  const redis = getRedis();
-  const bucketKey = `${REDIS_KEYS.ddosCounterPrefix}${safeIp}`;
-  const tx = redis.multi();
-  tx.incr(bucketKey);
-  tx.pttl(bucketKey);
-  const res = await tx.exec();
-  const count = Number(res?.[0]?.[1] ?? 1);
-  let pttl = Number(res?.[1]?.[1] ?? -1);
-  if (pttl < 0) {
-    await redis.pexpire(bucketKey, DDOS_WINDOW_MS);
-    pttl = DDOS_WINDOW_MS;
-  }
-
-  if (count > limit) {
-    await redis.hincrby(DDOS_METRICS_KEY, "httpLimited", 1).catch(() => 0);
-    if (count > limit + Math.max(10, Math.floor(limit * 0.15))) {
-      await ddosBlockIp(safeIp, "http_flood", mode.blockMs, { country });
+  try {
+    const safeIp = ip || "unknown";
+    if (await ddosIsBlockedIp(safeIp)) {
+      await getRedis().hincrby(DDOS_METRICS_KEY, "httpBlocked", 1).catch(() => 0);
+      return {
+        allowed: false,
+        statusCode: 429,
+        retryAfterMs: 60_000,
+        message: "Too many requests from this IP",
+      };
     }
-    return {
-      allowed: false,
-      statusCode: 429,
-      retryAfterMs: Math.max(200, pttl),
-      message: "Rate limit exceeded",
-    };
-  }
 
-  await redis.hincrby(DDOS_METRICS_KEY, "httpAccepted", 1).catch(() => 0);
-  return { allowed: true, statusCode: 200, retryAfterMs: 0, message: "" };
+    const strict = await ddosGetStrictMode();
+    const mode = strict ? DDOS_STRICT_CFG : DDOS_NORMAL_CFG;
+    let limit = mode.httpLimit;
+    const lower = pathName.toLowerCase();
+    if (lower.startsWith("/socket.io/") || lower.startsWith("/cp/cp.nd") || lower.startsWith("/cp.nd")) {
+      limit = Math.max(20, Math.floor(limit * 0.6));
+    }
+
+    const redis = getRedis();
+    const bucketKey = `${REDIS_KEYS.ddosCounterPrefix}${safeIp}`;
+    const tx = redis.multi();
+    tx.incr(bucketKey);
+    tx.pttl(bucketKey);
+    const res = await tx.exec();
+    const count = Number(res?.[0]?.[1] ?? 1);
+    let pttl = Number(res?.[1]?.[1] ?? -1);
+    if (pttl < 0) {
+      await redis.pexpire(bucketKey, DDOS_WINDOW_MS).catch(() => 0);
+      pttl = DDOS_WINDOW_MS;
+    }
+
+    if (count > limit) {
+      await redis.hincrby(DDOS_METRICS_KEY, "httpLimited", 1).catch(() => 0);
+      if (count > limit + Math.max(10, Math.floor(limit * 0.15))) {
+        await ddosBlockIp(safeIp, "http_flood", mode.blockMs, { country }).catch(() => {});
+      }
+      return {
+        allowed: false,
+        statusCode: 429,
+        retryAfterMs: Math.max(200, pttl),
+        message: "Rate limit exceeded",
+      };
+    }
+
+    await redis.hincrby(DDOS_METRICS_KEY, "httpAccepted", 1).catch(() => 0);
+    return { allowed: true, statusCode: 200, retryAfterMs: 0, message: "" };
+  } catch (err) {
+    // Fail-open on unexpected Redis error so valid traffic is never blocked
+    return { allowed: true, statusCode: 200, retryAfterMs: 0, message: "" };
+  }
 }
 
 export async function ddosSnapshot() {
