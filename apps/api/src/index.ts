@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -30,7 +31,26 @@ async function start() {
 
   app.addHook("onRequest", async (req, reply) => {
     const cleanPath = (req.raw.url || req.url || "/").split("?")[0] || "/";
-    if (DDOS_BYPASS_PATHS.has(cleanPath)) {
+    const isStaticOrAsset =
+      cleanPath === "/" ||
+      cleanPath.startsWith("/assets/") ||
+      cleanPath.startsWith("/uploads/") ||
+      cleanPath.startsWith("/carrom-game/") ||
+      cleanPath.startsWith("/ejm/") ||
+      cleanPath.startsWith("/flag/") ||
+      cleanPath.startsWith("/fonts/") ||
+      cleanPath.startsWith("/imgs/") ||
+      cleanPath.endsWith(".js") ||
+      cleanPath.endsWith(".css") ||
+      cleanPath.endsWith(".png") ||
+      cleanPath.endsWith(".webp") ||
+      cleanPath.endsWith(".ico") ||
+      cleanPath.endsWith(".svg") ||
+      cleanPath.endsWith(".mp3") ||
+      cleanPath.endsWith(".ogg") ||
+      cleanPath.endsWith(".ttf");
+
+    if (DDOS_BYPASS_PATHS.has(cleanPath) || isStaticOrAsset) {
       return;
     }
     const result = await ddosConsumeRequest(
@@ -93,6 +113,41 @@ async function start() {
   await registerMediaRoutes(app);
   await registerWalletRoutes(app);
   await registerCpRoutes(app);
+
+  if (fs.existsSync(apiConfig.webDistDir)) {
+    await app.register(fastifyStatic, {
+      root: apiConfig.webDistDir,
+      prefix: "/",
+      decorateReply: false,
+    });
+
+    app.setNotFoundHandler((req, reply) => {
+      const cleanPath = (req.raw.url || req.url || "/").split("?")[0] || "/";
+      if (
+        req.method === "GET" &&
+        !cleanPath.startsWith("/uploads/") &&
+        !cleanPath.startsWith("/health") &&
+        !cleanPath.startsWith("/ping") &&
+        !cleanPath.startsWith("/auth/") &&
+        !cleanPath.startsWith("/public/") &&
+        !cleanPath.startsWith("/wallet/") &&
+        !cleanPath.startsWith("/cp/") &&
+        !cleanPath.startsWith("/media/")
+      ) {
+        const indexPath = path.join(apiConfig.webDistDir, "index.html");
+        if (fs.existsSync(indexPath)) {
+          reply.type("text/html; charset=utf-8");
+          return reply.sendFile("index.html");
+        }
+      }
+      reply.code(404).send({
+        ok: false,
+        err: true,
+        message: `Route ${req.method}:${cleanPath} not found`,
+        statusCode: 404,
+      });
+    });
+  }
 
   app.setErrorHandler((err, req, reply) => {
     req.log.error({ err }, "Unhandled API error");

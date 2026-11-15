@@ -41,6 +41,7 @@ export const apiConfig = {
   ),
   uploadDir: path.resolve(here, "../../../", envStr("UPLOAD_DIR", "uploads")),
   publicDir: path.resolve(here, "../../web/public"),
+  webDistDir: path.resolve(here, "../../web/dist"),
   maxUploadBytes: 50 * 1000 * 1000,
   ownerUsername: envStr("APP_OWNER_USERNAME", ""),
   ownerPassword: envStr("APP_OWNER_PASSWORD", ""),
