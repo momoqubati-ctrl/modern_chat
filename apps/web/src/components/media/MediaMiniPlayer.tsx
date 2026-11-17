@@ -97,6 +97,10 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
       playerRef.current = null;
       if (player) {
         try {
+          // Skip persisting when the video ended naturally (position = end).
+          if (player.getPlayerState() !== 0) {
+            saveMediaPosition(key, player.getCurrentTime(), true);
+          }
           player.destroy();
         } catch {
           // already gone
@@ -156,6 +160,7 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
           const active = playerRef.current;
           if (!active) return;
           try {
+            if (active.getPlayerState() === 0) return; // ended — don't persist
             saveMediaPosition(key, active.getCurrentTime());
           } catch {
             // player torn down mid-tick
@@ -235,10 +240,11 @@ function NativeVideoSurface({ media, timeGetterRef }: { media: MediaRef; timeGet
       if (registerTimeRef) registerTimeRef.current = () => 0;
       try {
         video.pause();
+        // Skip persisting when the video ended naturally (position = end).
+        if (!video.ended) saveMediaPosition(key, video.currentTime, true);
       } catch {
         // ignore
       }
-      saveMediaPosition(key, video.currentTime, true);
     };
   }, [media, registerTimeRef]);
 
