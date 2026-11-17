@@ -130,6 +130,11 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
 
   const catalogStore = new CatalogStore();
   await catalogStore.initialize();
+  // Warm filter & shortcut caches at boot so even first message doesn't wait on DB
+  await Promise.allSettled([
+    catalogStore.getFilterService().warmFilterCache(),
+    catalogStore.getShortcutService().warmShortcutCache(),
+  ]);
 
   const securityGuard = new SecurityGuard(catalogStore);
   const presenceDirectory = new PresenceDirectory(io, catalogStore);
@@ -404,6 +409,7 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
 
           // Messaging & Wall
           case "msg":
+          case "room_message":
             await messagingHandlers.handleRoomChatMessage(socket, data);
             break;
           case "likemsg":
@@ -658,6 +664,12 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
           default:
             break;
         }
+      });
+    });
+
+    socket.on("room_message", async (data: unknown) => {
+      await runGuarded(socket, "room_message", async () => {
+        await messagingHandlers.handleRoomChatMessage(socket, data);
       });
     });
 
