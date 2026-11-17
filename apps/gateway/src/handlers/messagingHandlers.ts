@@ -914,12 +914,18 @@ export function createMessagingHandlers(ctx: GatewayContext) {
         if (isTyping) {
           ctx.io.to(targetId).emit("msg", {
             cmd: "typing",
-            data: { id: socket.id, from: socket.id, topic: sanitizeHtmlText(session.topic), pm: true },
+            data: {
+              id: socket.id,
+              from: socket.id,
+              uid: session.uid || session.lid,
+              topic: sanitizeHtmlText(session.topic),
+              pm: true,
+            },
           });
         } else {
           ctx.io.to(targetId).emit("msg", {
             cmd: "stopTyping",
-            data: { id: socket.id, from: socket.id, pm: true },
+            data: { id: socket.id, from: socket.id, uid: session.uid || session.lid, pm: true },
           });
         }
         return;

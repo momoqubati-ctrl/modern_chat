@@ -139,6 +139,8 @@ export interface ChatState {
   noteCommentsMap: Record<string, NoteCommentRecord[]>;
   followInfoMap: Record<string, FollowInfoSnapshot>;
   typingUsers: Record<string, string>;
+  /** Private-chat typing indicators (kept OUT of the room bar), keyed by peer socket id + stable uid. */
+  pmTypingUsers: Record<string, string>;
   stageState: Record<string, unknown>;
   listenersCount: number;
   speakingUsers: Record<string, boolean>;
@@ -411,6 +413,34 @@ let apiClient: NewChatApiClient | null = null;
 const typingExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const stageSignalListeners = new Set<(payload: Record<string, unknown>) => void>();
 
+/**
+ * Resolves a PM thread key to the peer's CURRENT identity.
+ * Accepts either the peer's stable uid (survives reconnects) or a live socket id,
+ * and returns the peer's active socket id so the gateway can route to them.
+ */
+function resolvePeerTarget(
+  key: string,
+  onlineMap: Record<string, { id: string; uid?: string; lid?: string; topic?: string; pic?: string }>,
+): { socketId: string; uid: string; user?: { topic?: string; pic?: string } } | null {
+  if (!key) return null;
+  const direct = onlineMap[key];
+  if (direct?.id) {
+    return { socketId: direct.id, uid: direct.uid || direct.lid || direct.id, user: direct };
+  }
+  for (const u of Object.values(onlineMap)) {
+    if (u && (u.uid === key || u.id === key || u.lid === key)) {
+      return { socketId: u.id, uid: u.uid || u.lid || u.id, user: u };
+    }
+  }
+  return null;
+}
+
+function omitMapKeys(map: Record<string, string>, keys: string[]): Record<string, string> {
+  const next = { ...map };
+  for (const k of keys) delete next[k];
+  return next;
+}
+
 export function subscribeStageSignals(
   listener: (payload: Record<string, unknown>) => void,
 ): () => void {
@@ -569,6 +599,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   noteCommentsMap: {},
   followInfoMap: {},
   typingUsers: {},
+  pmTypingUsers: {},
   stageState: {},
   listenersCount: 0,
   speakingUsers: {},
@@ -1592,17 +1623,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     const handleIncomingPm = (pm: any) => {
-      const peerId = String(pm?.id || pm?.from || "");
-      if (!peerId) return;
+      // Key the thread by the peer's STABLE uid (falls back to socket id for
+      // legacy payloads) so reconnects keep the same conversation.
+      const peerUid = String(pm?.uid || pm?.id || pm?.from || "");
+      if (!peerUid) return;
       set((s) => {
-        const list = s.pmThreads[peerId] ?? [];
+        const list = s.pmThreads[peerUid] ?? [];
         return {
           pmThreads: {
             ...s.pmThreads,
-            [peerId]: [
+            [peerUid]: [
               ...list,
               {
-                from: peerId,
+                from: String(pm?.id || peerUid),
+                uid: peerUid,
                 to: pm.to ? String(pm.to) : undefined,
                 topic: String(pm.topic || ""),
                 msg: String(pm.msg || ""),
@@ -1622,7 +1656,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Read receipt: the peer opened the thread → our outgoing messages turn ✓✓
     socketClient.onCmd("pm_seen", (data) => {
-      const readerId = String(data?.from || data?.id || "");
+      const readerId = String(data?.uid || data?.from || data?.id || "");
       if (!readerId) return;
       set((s) => {
         const list = s.pmThreads[readerId];
@@ -1646,6 +1680,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("typing", (data) => {
       if (!data?.id) return;
       const tid = String(data.id);
+      // Private-chat typing is routed to pmTypingUsers so it never leaks into
+      // the room's typing bar; keyed by socket id AND stable uid when present.
+      if (data.pm) {
+        const uidKey = data.uid ? String(data.uid) : "";
+        const keys = uidKey && uidKey !== tid ? [tid, uidKey] : [tid];
+        for (const k of keys) {
+          const prevTimer = typingExpiryTimers.get(k);
+          if (prevTimer) clearTimeout(prevTimer);
+          typingExpiryTimers.set(
+            k,
+            setTimeout(() => {
+              typingExpiryTimers.delete(k);
+              set((s) => ({
+                typingUsers: omitMapKeys(s.typingUsers, [k]),
+                pmTypingUsers: omitMapKeys(s.pmTypingUsers, [k]),
+              }));
+            }, TYPING_EXPIRY_MS),
+          );
+        }
+        set((s) => {
+          const next = { ...s.pmTypingUsers };
+          for (const k of keys) next[k] = String(data.topic || "");
+          return { pmTypingUsers: next };
+        });
+        return;
+      }
       const prevTimer = typingExpiryTimers.get(tid);
       if (prevTimer) clearTimeout(prevTimer);
       typingExpiryTimers.set(
@@ -1665,16 +1725,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("stopTyping", (data) => {
       if (!data?.id) return;
       const tid = String(data.id);
-      const prevTimer = typingExpiryTimers.get(tid);
-      if (prevTimer) {
-        clearTimeout(prevTimer);
-        typingExpiryTimers.delete(tid);
+      const uidKey = data.uid ? String(data.uid) : "";
+      const keys = data.pm && uidKey && uidKey !== tid ? [tid, uidKey] : [tid];
+      for (const k of keys) {
+        const prevTimer = typingExpiryTimers.get(k);
+        if (prevTimer) {
+          clearTimeout(prevTimer);
+          typingExpiryTimers.delete(k);
+        }
       }
-      set((s) => {
-        const next = { ...s.typingUsers };
-        delete next[tid];
-        return { typingUsers: next };
-      });
+      set((s) => ({
+        typingUsers: omitMapKeys(s.typingUsers, keys),
+        pmTypingUsers: omitMapKeys(s.pmTypingUsers, keys),
+      }));
     });
 
     socketClient.onCmd("muted", (data) => {
@@ -1895,7 +1958,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendTyping: (isTyping, targetId) => {
-    socketClient?.setTyping(isTyping, targetId ? undefined : get().currentRoomId, targetId);
+    if (targetId) {
+      const peer = resolvePeerTarget(targetId, get().onlineMap);
+      if (!peer) return;
+      socketClient?.setTyping(isTyping, undefined, peer.socketId);
+      return;
+    }
+    socketClient?.setTyping(isTyping, get().currentRoomId, undefined);
   },
 
   sendWallPost: (msg, opts) => {
@@ -1922,18 +1991,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const trimmed = msg.trim();
     if (!trimmed && !opts?.file) return;
     const me = get().me;
-    socketClient?.sendPrivateMessage(targetSocketId, trimmed, opts);
+    const peer = resolvePeerTarget(targetSocketId, get().onlineMap);
+    if (!peer) {
+      get().pushNotice("المستخدم غير متصل بالانترنت في الوقت الحالي", { force: 1 });
+      return;
+    }
+    socketClient?.sendPrivateMessage(peer.socketId, trimmed, opts);
     set((s) => {
-      const list = s.pmThreads[targetSocketId] ?? [];
+      const list = s.pmThreads[peer.uid] ?? [];
       return {
-        activePmTargetId: targetSocketId,
+        activePmTargetId: peer.uid,
         pmThreads: {
           ...s.pmThreads,
-          [targetSocketId]: [
+          [peer.uid]: [
             ...list,
             {
               from: me?.id || "me",
-              to: targetSocketId,
+              to: peer.socketId,
+              uid: peer.uid,
               topic: me?.topic || "أنا",
               msg: trimmed,
               ts: Date.now(),
@@ -1950,7 +2025,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   markPmThreadRead: (targetSocketId) => {
     if (!targetSocketId) return;
-    socketClient?.emitCmd("pm_seen", { id: targetSocketId });
+    const peer = resolvePeerTarget(targetSocketId, get().onlineMap);
+    if (!peer) return;
+    socketClient?.emitCmd("pm_seen", { id: peer.socketId });
   },
 
   sendPublicAnnouncement: (msg, hideSender = false) => {
@@ -1960,7 +2037,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendVoiceNote: (audioBase64OrDataUrl, mime, targetSocketId) => {
-    socketClient?.sendVoiceNote(audioBase64OrDataUrl, mime, targetSocketId);
+    let target = targetSocketId;
+    if (target) {
+      const peer = resolvePeerTarget(target, get().onlineMap);
+      if (!peer) {
+        get().pushNotice("المستخدم غير متصل بالانترنت في الوقت الحالي", { force: 1 });
+        return;
+      }
+      target = peer.socketId;
+    }
+    socketClient?.sendVoiceNote(audioBase64OrDataUrl, mime, target);
   },
 
   sendGift: (targetSocketId, giftFile) => {
@@ -2063,19 +2149,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   controlCompetitionBot: (cmd, payload) => socketClient?.controlCompetitionBot(cmd, payload),
 
   requestCall: (targetSocketId, callType = "audio") => {
-    const peer = get().onlineMap[targetSocketId];
+    const resolved = resolvePeerTarget(targetSocketId, get().onlineMap);
+    const peer = resolved?.user ?? get().onlineMap[targetSocketId];
+    const dialId = resolved?.socketId ?? targetSocketId;
     set({
       callState: {
         status: "outgoing",
         callId: `call_${Date.now()}`,
-        peerId: targetSocketId,
+        peerId: dialId,
         peerTopic: peer?.topic || "مستخدم",
         peerPic: peer?.pic || "pic.png",
         callType,
         isCaller: true,
       },
     });
-    socketClient?.requestCall(targetSocketId, callType, get().me?.topic);
+    socketClient?.requestCall(dialId, callType, get().me?.topic);
   },
 
   acceptCall: () => {
