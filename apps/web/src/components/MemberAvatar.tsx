@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { OnlineUserSnapshot } from "@newchat/shared";
 import { useChatStore } from "@newchat/core-client";
 import { getCountryNameArabic, resolveAssetUrl, resolveCountryFlagUrl } from "../lib/mediaUrl.js";
@@ -33,7 +34,7 @@ export function getStatusLabel(stat?: number, offline?: boolean): string {
   }
 }
 
-export function MemberAvatar({
+export const MemberAvatar = memo(function MemberAvatar({
   pic,
   cover,
   topic,
@@ -108,7 +109,7 @@ export function MemberAvatar({
       )}
     </div>
   );
-}
+});
 
 export function MemberPrefixIcons({
   user,

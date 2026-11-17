@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { isSafeLinkUrl, resolveAssetUrl } from "./mediaUrl.js";
 import { VideoPlayCard, YouTubePlayCard } from "../components/media/MediaPlayCard.js";
 
@@ -236,8 +236,31 @@ export function parseSafeRichContent(rawInput: unknown, dark = true): ParsedRich
   return { isCard, cardLink, nodes };
 }
 
-export function SafeRichText({ text, dark = true }: { text: unknown; dark?: boolean }) {
+// ---------------------------------------------------------------------------
+// SafeRichText — parse cache + memo
+//
+// Parsing is regex-heavy (URL extraction, sanitization, markup) and used for
+// every visible chat/wall/PM row. Results are deterministic per (text, dark),
+// so a module-level cache survives virtualizer row remounts, and memo() skips
+// re-renders whose text/dark props did not change.
+// ---------------------------------------------------------------------------
+
+const PARSE_CACHE_MAX = 500;
+const parseCache = new Map<string, ParsedRichMessage>();
+
+function getCachedParse(text: string, dark: boolean): ParsedRichMessage {
+  const key = `${dark ? "d" : "l"}|${text}`;
+  const cached = parseCache.get(key);
+  if (cached) return cached;
   const parsed = parseSafeRichContent(text, dark);
+  if (parseCache.size >= PARSE_CACHE_MAX) parseCache.clear();
+  parseCache.set(key, parsed);
+  return parsed;
+}
+
+function SafeRichTextImpl({ text, dark = true }: { text: unknown; dark?: boolean }) {
+  const parsed =
+    typeof text === "string" ? getCachedParse(text, dark) : parseSafeRichContent(text, dark);
   const youtubeId =
     parsed.cardLink ? extractYoutubeVideoId(parsed.cardLink) : null;
   const mediaType =
@@ -288,6 +311,8 @@ export function SafeRichText({ text, dark = true }: { text: unknown; dark?: bool
     </span>
   );
 }
+
+export const SafeRichText = memo(SafeRichTextImpl);
 
 export function AttachmentRenderer({
   file,
