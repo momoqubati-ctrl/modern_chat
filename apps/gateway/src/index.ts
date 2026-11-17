@@ -437,6 +437,9 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
           case "ppmsg":
             await messagingHandlers.handlePrivateMessage(socket, cmd, data);
             break;
+          case "pm_seen":
+            await messagingHandlers.handlePmSeen(socket, data);
+            break;
           case "pmsghide":
           case "ppmsghide":
             await messagingHandlers.handlePublicNoticeCmd(socket, cmd, data);

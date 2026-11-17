@@ -615,6 +615,25 @@ export function createMessagingHandlers(ctx: GatewayContext) {
       }
     },
 
+    async handlePmSeen(socket: Socket, rawData: unknown): Promise<void> {
+      const session = ctx.presenceDirectory.getLocalSession(socket.id);
+      if (!session || !rawData || typeof rawData !== "object") return;
+      const d = rawData as Record<string, unknown>;
+      const targetId = String(d.id || d.to || "").trim();
+      if (!targetId || targetId === socket.id) return;
+
+      const rate = await ctx.securityGuard.consumeRateSlot(`pmseen:${socket.id}`, 60, 10_000);
+      if (!rate.ok) return;
+
+      const target = await ctx.presenceDirectory.getDistributedSession(targetId);
+      if (!target || target.offline) return;
+
+      ctx.io.to(target.id).emit("msg", {
+        cmd: "pm_seen",
+        data: { from: socket.id, uid: session.uid || session.lid || "", at: Date.now() },
+      });
+    },
+
     async handlePublicNoticeCmd(
       socket: Socket,
       cmd: "pmsghide" | "ppmsghide",
