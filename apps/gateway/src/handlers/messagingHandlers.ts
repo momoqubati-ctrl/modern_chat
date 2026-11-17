@@ -57,6 +57,15 @@ export function createMessagingHandlers(ctx: GatewayContext) {
 
   return {
     async handleRoomChatMessage(socket: Socket, rawData: unknown): Promise<void> {
+      // Cold-start protection: ensure catalog & services are ready on demand
+      if (!ctx.catalogStore.isInitialized()) {
+        try {
+          await ctx.catalogStore.initialize();
+        } catch (err) {
+          console.warn("[Gateway:handleRoomChatMessage] Cold start lazy-init warning:", err);
+        }
+      }
+
       const session = ctx.presenceDirectory.getLocalSession(socket.id);
       if (!session || !session.roomid || !rawData || typeof rawData !== "object") return;
       if (session.offline || session.ismuted || session.muted) {
@@ -67,7 +76,11 @@ export function createMessagingHandlers(ctx: GatewayContext) {
       }
 
       const d = rawData as Record<string, unknown>;
-      const room = ctx.catalogStore.getRoomById(String(d.roomid || session.roomid));
+      let room = ctx.catalogStore.getRoomById(String(d.roomid || session.roomid));
+      if (!room && !ctx.catalogStore.isInitialized()) {
+        await ctx.catalogStore.initialize().catch(() => {});
+        room = ctx.catalogStore.getRoomById(String(d.roomid || session.roomid));
+      }
       if (!room) return;
 
       const ownerMeta = parseRoomOwnerMeta(room.room_owner_meta);
@@ -552,6 +565,20 @@ export function createMessagingHandlers(ctx: GatewayContext) {
       }
 
       const sliced = rawText.slice(0, Math.max(50, limits.lengthMsgPm));
+
+      // Fail-closed verification for private messages (processTextStrict)
+      const strictCheck = ctx.catalogStore.getFilterService().processTextStrict(sliced);
+      if (!strictCheck.allowed) {
+        if (strictCheck.matchedWord) {
+          await ctx.securityGuard.scanAndLogProhibitedText(ctx.io, socket, sliced, {
+            source: "pm",
+            target: target.topic,
+          });
+        }
+        emitNotice(socket, strictCheck.reason || "تم منع إرسال الرسالة لاحتوائها على عبارات محظورة");
+        return;
+      }
+
       const scan = await ctx.securityGuard.scanAndLogProhibitedText(ctx.io, socket, sliced, {
         source: "pm",
         target: target.topic,

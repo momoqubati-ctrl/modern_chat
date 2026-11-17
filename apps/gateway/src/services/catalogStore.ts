@@ -37,6 +37,8 @@ import {
 } from "@newchat/shared";
 import { gatewayConfig } from "../config.js";
 import { safeJsonParse } from "../lib/socketUtils.js";
+import { FilterService, getFilterService } from "./filterService.js";
+import { ShortcutService, getShortcutService } from "./shortcutService.js";
 import type {
   BanRuleRow,
   GatewayOwnerState,
@@ -108,8 +110,22 @@ export class CatalogStore {
   private bannedSystems = new Set<string>();
   private bannedBrowsers = new Set<string>();
   private ektisarReplacer = new EktisarReplacer(1000);
+  private filterService: FilterService = getFilterService();
+  private shortcutService: ShortcutService = getShortcutService();
   private introMessages: IntroWelcomeRow[] = [];
   private initialized = false;
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  getFilterService(): FilterService {
+    return this.filterService;
+  }
+
+  getShortcutService(): ShortcutService {
+    return this.shortcutService;
+  }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -290,10 +306,10 @@ export class CatalogStore {
 
   private async loadCuts(): Promise<void> {
     try {
-      const { db } = getDb();
-      const rows = await db.select().from(cuts);
+      await this.shortcutService.warmShortcutCache();
+      const cutsRules = this.shortcutService.getRules();
       const rules = compileEktisarRules(
-        rows.map((r) => ({ title: r.text1 || "", msg: r.text2 || "" })),
+        cutsRules.map((r) => ({ title: r.text1, msg: r.text2 })),
       );
       this.ektisarReplacer.setRules(rules);
     } catch {
@@ -303,12 +319,11 @@ export class CatalogStore {
 
   private async loadNotext(): Promise<void> {
     try {
-      const { db } = getDb();
-      const rows = await db.select().from(notext);
-      this.prohibitedWords = rows.map((r) => ({
+      await this.filterService.warmFilterCache();
+      this.prohibitedWords = this.filterService.getRules().map((r) => ({
         id: r.id,
-        type: r.type,
-        path: r.path,
+        type: r.type ?? null,
+        path: r.path ?? null,
         v: r.v,
       }));
     } catch {
@@ -488,23 +503,21 @@ export class CatalogStore {
   }
 
   replaceShortcuts(text: string): string {
-    return this.ektisarReplacer.replace(text);
+    return this.shortcutService.replaceShortcuts(text);
   }
 
   scanProhibitedWords(input: string): { matchedWord: string; rule: ProhibitedWordRule } | null {
-    const active = this.prohibitedWords.filter((r) => r.v && r.path !== "amsgs");
-    const allowedWords = new Set(
-      this.prohibitedWords
-        .filter((r) => r.v && r.path === "amsgs")
-        .map((r) => String(r.v || "").trim()),
-    );
-    const words = active
-      .map((r) => String(r.v || "").trim())
-      .filter((w) => w && !allowedWords.has(w));
-    const matched = matchesProhibitedWord(words, input);
-    if (!matched) return null;
-    const rule = active.find((r) => String(r.v || "").trim() === matched);
-    return rule ? { matchedWord: matched, rule } : null;
+    const hit = this.filterService.scanProhibitedWords(input);
+    if (!hit) return null;
+    return {
+      matchedWord: hit.matchedWord,
+      rule: {
+        id: hit.rule.id,
+        type: hit.rule.type ?? "word",
+        path: hit.rule.path ?? "bmsgs",
+        v: hit.rule.v ?? hit.matchedWord,
+      },
+    };
   }
 
   isSystemBlocked(plt: string): boolean {
