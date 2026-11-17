@@ -41,6 +41,8 @@ export interface PrivateMessageEntry {
   file?: string;
   fileType?: string;
   self?: boolean;
+  /** True once the peer has opened the thread (read receipt ✓✓). */
+  seen?: boolean;
   ucol?: string;
   bg?: string;
 }
@@ -247,6 +249,8 @@ export interface ChatState {
     msg: string,
     opts?: { file?: string; fileType?: string; variant?: "pmsg" | "pm" | "ppmsg" },
   ) => void;
+  /** Notifies the peer (server → peer) that this thread is open & read. */
+  markPmThreadRead: (targetSocketId: string) => void;
   sendPublicAnnouncement: (msg: string, hideSender?: boolean) => void;
   sendVoiceNote: (audioBase64OrDataUrl: string, mime: string, targetSocketId?: string) => void;
   sendGift: (targetSocketId: string, giftFile: string) => void;
@@ -1616,6 +1620,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("pmsg", handleIncomingPm);
     socketClient.onCmd("ppmsg", handleIncomingPm);
 
+    // Read receipt: the peer opened the thread → our outgoing messages turn ✓✓
+    socketClient.onCmd("pm_seen", (data) => {
+      const readerId = String(data?.from || data?.id || "");
+      if (!readerId) return;
+      set((s) => {
+        const list = s.pmThreads[readerId];
+        if (!list || !list.some((m) => m.self && !m.seen)) return s;
+        return {
+          pmThreads: {
+            ...s.pmThreads,
+            [readerId]: list.map((m) => (m.self && !m.seen ? { ...m, seen: true } : m)),
+          },
+        };
+      });
+    });
+
     const handlePublicAnnouncement = (data: any) => {
       if (!data?.msg) return;
       get().pushNotice(String(data.msg), { topic: String(data.topic || "إعلان"), force: 1 });
@@ -1926,6 +1946,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       };
     });
+  },
+
+  markPmThreadRead: (targetSocketId) => {
+    if (!targetSocketId) return;
+    socketClient?.emitCmd("pm_seen", { id: targetSocketId });
   },
 
   sendPublicAnnouncement: (msg, hideSender = false) => {

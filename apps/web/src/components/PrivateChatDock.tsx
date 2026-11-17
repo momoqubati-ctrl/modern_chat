@@ -166,6 +166,12 @@ export function PrivateChatDock({
   // Selected conversation ID (if any is active)
   const selectedId = activePmTargetId || "";
   const messages = selectedId ? pmThreads[selectedId] ?? [] : [];
+  const markPmThreadRead = useChatStore((s) => s.markPmThreadRead);
+
+  // Read receipts: while the thread is open, notify the peer → their ✓ turns ✓✓
+  useEffect(() => {
+    if (selectedId) markPmThreadRead(selectedId);
+  }, [selectedId, messages.length, markPmThreadRead]);
 
   // Robust partner resolution across onlineMap, UIDs, handles and thread messages
   const activeUser = useMemo(() => {
@@ -480,6 +486,7 @@ export function PrivateChatDock({
         lastMsg?: string;
         lastTime?: string;
         isSelf?: boolean;
+        isSeen?: boolean;
         unread?: number;
       }
     >();
@@ -501,6 +508,7 @@ export function PrivateChatDock({
         lastMsg: last?.file ? "مرفق 📎" : last?.msg || "أرسلت رسالة",
         lastTime: last ? formatTimeArabic(last.ts) : "الآن",
         isSelf: Boolean(last?.self),
+        isSeen: Boolean(last?.seen),
         unread: msgs.filter((m) => !m.self).length,
       });
     }
@@ -685,7 +693,12 @@ export function PrivateChatDock({
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate flex items-center justify-end gap-1">
-                        {item.isSelf && <CheckCheck className="w-3.5 h-3.5 text-sky-400 inline" />}
+                        {item.isSelf &&
+                          (item.isSeen ? (
+                            <CheckCheck className="w-3.5 h-3.5 text-sky-400 inline" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 inline" />
+                          ))}
                         <span>{item.lastMsg}</span>
                       </div>
                     </div>
@@ -971,7 +984,7 @@ export function PrivateChatDock({
                   return (
                     <div
                       key={`${m.ts}-${idx}`}
-                      className={`flex flex-col ${isMine ? "items-start" : "items-end"}`}
+                      className={`flex flex-col ${isMine ? "items-end" : "items-start"}`}
                     >
                       {!isMine ? (
                         /* Incoming Partner Message with Avatar, Banner, Gift & Cosmetics (Matching Room Chat) */
@@ -1041,7 +1054,11 @@ export function PrivateChatDock({
                             {m.msg && <SafeRichText text={m.msg} dark={dark} />}
                             {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} />}
                             <div className="mt-1 text-[9px] opacity-80 text-left dir-ltr flex items-center gap-1">
-                              <CheckCheck className="w-3 h-3 text-sky-200" />
+                              {m.seen ? (
+                                <CheckCheck className="w-3 h-3 text-sky-100" />
+                              ) : (
+                                <Check className="w-3 h-3 text-white/70" />
+                              )}
                               <span>{formatTimeArabic(m.ts)}</span>
                             </div>
                           </div>
