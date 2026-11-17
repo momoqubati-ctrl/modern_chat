@@ -76,7 +76,7 @@ export function PrivateChatDock({
   const toggleNoteLike = useChatStore((s) => s.toggleNoteLike);
   const addNoteComment = useChatStore((s) => s.addNoteComment);
   const powers = useChatStore((s) => s.powers);
-  const typingUsers = useChatStore((s) => s.typingUsers);
+  const pmTypingUsers = useChatStore((s) => s.pmTypingUsers);
   const sendTyping = useChatStore((s) => s.sendTyping);
   const searchYoutube = useChatStore((s) => s.searchYoutube);
   const youtubeResults = useChatStore((s) => s.youtubeResults);
@@ -163,8 +163,14 @@ export function PrivateChatDock({
     [pmThreads, me?.id, me?.uid]
   );
 
-  // Selected conversation ID (if any is active)
-  const selectedId = activePmTargetId || "";
+  // Selected conversation ID — normalized to the peer's STABLE uid so threads
+  // survive reconnects (socket ids change on reconnect; uids don't).
+  const rawPmTarget = activePmTargetId || "";
+  const selectedId = useMemo(() => {
+    if (!rawPmTarget) return "";
+    const t = onlineMap[rawPmTarget];
+    return t?.uid || t?.lid || rawPmTarget;
+  }, [rawPmTarget, onlineMap]);
   const messages = selectedId ? pmThreads[selectedId] ?? [] : [];
   const markPmThreadRead = useChatStore((s) => s.markPmThreadRead);
 
@@ -207,9 +213,9 @@ export function PrivateChatDock({
 
   const isPartnerTyping = Boolean(
     selectedId &&
-      (typingUsers[selectedId] ||
-        (activeUser?.id && typingUsers[activeUser.id]) ||
-        (activeUser?.uid && typingUsers[activeUser.uid]))
+      (pmTypingUsers[selectedId] ||
+        (activeUser?.id && pmTypingUsers[activeUser.id]) ||
+        (activeUser?.uid && pmTypingUsers[activeUser.uid]))
   );
 
   // Play sound on new incoming PM
@@ -495,7 +501,9 @@ export function PrivateChatDock({
     for (const [id, msgs] of Object.entries(pmThreads)) {
       if (!id || msgs.length === 0) continue;
       const last = msgs[msgs.length - 1];
-      const u = onlineMap[id];
+      // Threads are keyed by the peer's stable uid — resolve their live profile
+      // from onlineMap by socket id OR uid.
+      const u = onlineMap[id] || Object.values(onlineMap).find((x) => x.uid === id || x.id === id);
       const topic = u?.topic || last?.topic || `@user_${id.slice(0, 4)}`;
       const cleanHandle = topic.startsWith("@") ? topic : `@${topic}`;
       const isVerified = isUserVerified(u || last, onlineMap);
@@ -941,7 +949,7 @@ export function PrivateChatDock({
             {threadIds.length > 1 && (
               <div className="px-2.5 py-1.5 border-b border-slate-100 dark:border-slate-800/60 flex items-center gap-1.5 overflow-x-auto shrink-0">
                 {threadIds.map((id) => {
-                  const u = onlineMap[id];
+                  const u = onlineMap[id] || Object.values(onlineMap).find((x) => x.uid === id || x.id === id);
                   const lastMsg = pmThreads[id]?.[pmThreads[id]!.length - 1];
                   const active = id === selectedId;
                   return (
@@ -1069,34 +1077,34 @@ export function PrivateChatDock({
                 })
               )}
 
-              {/* Partner Typing Indicator with Avatar and 3 Animated Bouncing Dots */}
-              {isPartnerTyping && (
-                <div className="flex items-end gap-2 animate-fade-in my-1.5 px-1">
-                  <div className="shrink-0 mb-0.5">
-                    <MemberAvatar
-                      pic={activeUser?.pic}
-                      topic={activeUser?.topic || selectedId}
-                      size="xs"
-                      showStatus={false}
-                    />
-                  </div>
-                  <div
-                    className={`rounded-2xl rounded-bl-none px-3.5 py-2 border shadow-xs flex items-center gap-1.5 ${
-                      dark
-                        ? "bg-slate-800/95 border-slate-700/80 text-slate-200"
-                        : "bg-slate-100/95 border-slate-200/80 text-slate-700"
-                    }`}
-                  >
-                    <span className="text-[11px] font-semibold text-slate-400 ml-1">يكتب</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              )}
-
               <div ref={scrollEndRef} />
             </div>
+
+            {/* Partner Typing Indicator — pinned strip directly above the composer,
+                so it is always visible and never buried under the footer. */}
+            {isPartnerTyping && (
+              <div
+                className={`px-3.5 py-1.5 border-t flex items-center gap-2 shrink-0 animate-fade-in ${
+                  dark ? "bg-slate-900/60 border-slate-800/60" : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <MemberAvatar
+                  pic={activeUser?.pic}
+                  topic={activeUser?.topic || selectedId}
+                  size="xs"
+                  showStatus={false}
+                />
+                <span className={`text-[11px] font-bold truncate ${dark ? "text-slate-300" : "text-slate-600"}`}>
+                  {activeUser?.topic || selectedId}
+                </span>
+                <span className="text-[11px] font-semibold text-sky-400 shrink-0">يكتب الآن</span>
+                <span className="flex items-center gap-0.5 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+                </span>
+              </div>
+            )}
 
             {/* Live Voice Recording Bar Indicator */}
             {recording && (
