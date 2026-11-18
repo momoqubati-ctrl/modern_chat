@@ -69,6 +69,7 @@ export function PrivateChatDock({
   const me = useChatStore((s) => s.me);
   const onlineMap = useChatStore((s) => s.onlineMap);
   const pmThreads = useChatStore((s) => s.pmThreads);
+  const pmReadState = useChatStore((s) => s.pmReadState);
   const activePmTargetId = useChatStore((s) => s.activePmTargetId);
   const callState = useChatStore((s) => s.callState);
   const rawNotes = useChatStore((s) => s.notes);
@@ -517,26 +518,12 @@ export function PrivateChatDock({
         lastTime: last ? formatTimeArabic(last.ts) : "الآن",
         isSelf: Boolean(last?.self),
         isSeen: Boolean(last?.seen),
-        unread: msgs.filter((m) => !m.self).length,
+        unread: msgs.filter((m) => !m.self && m.ts > (pmReadState[id] || 0)).length,
       });
     }
 
-    // Add online members not yet contacted
-    for (const [id, u] of Object.entries(onlineMap)) {
-      if (!map.has(id) && id !== me?.id) {
-        const cleanHandle = u.topic.startsWith("@") ? u.topic : `@${u.topic}`;
-        map.set(id, {
-          id,
-          topic: cleanHandle,
-          pic: u.pic,
-          verified: isUserVerified(u, onlineMap),
-          lastMsg: "انقر لبدء المحادثة",
-          lastTime: "متصل",
-          isSelf: false,
-          unread: 0,
-        });
-      }
-    }
+    // NOTE: online members who never messaged are intentionally NOT listed —
+    // only real conversations appear here (new chats start via "إضافة عضوة").
 
     let list = Array.from(map.values());
 
@@ -547,7 +534,7 @@ export function PrivateChatDock({
     }
 
     return list;
-  }, [pmThreads, onlineMap, me?.id, searchQuery]);
+  }, [pmThreads, pmReadState, onlineMap, me?.id, searchQuery]);
 
   const showWindow = open || callState.status !== "idle";
   if (!showWindow) return null;

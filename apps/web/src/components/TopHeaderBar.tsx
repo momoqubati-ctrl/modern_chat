@@ -51,6 +51,7 @@ export function TopHeaderBar({
   const roomsCounts = useChatStore((s) => s.roomsCounts);
   const onlineCount = useChatStore((s) => s.onlineCount);
   const pmThreads = useChatStore((s) => s.pmThreads);
+  const pmReadState = useChatStore((s) => s.pmReadState);
   const unreadMailCount = useChatStore((s) => s.unreadMailCount);
   const competitionState = useChatStore((s) => s.competitionState);
   const site = useChatStore((s) => s.site);
@@ -62,7 +63,11 @@ export function TopHeaderBar({
   const activeRoomUsersCount = activeRoom
     ? Number(roomsCounts[activeRoom.id] ?? activeRoom.onlineCount ?? 0)
     : 0;
-  const pmThreadCount = Object.keys(pmThreads).length;
+  // Badge = genuinely UNREAD incoming PMs; disappears once everything is read.
+  const pmUnreadTotal = Object.entries(pmThreads).reduce(
+    (sum, [key, msgs]) => sum + msgs.filter((m) => !m.self && m.ts > (pmReadState[key] || 0)).length,
+    0,
+  );
 
   const canCp = canAccessControlPanel(me, powers);
   const canBots = canUseCompetitionBots(me, powers, myPowerRole);
@@ -145,9 +150,9 @@ export function TopHeaderBar({
           }`}
         >
           <MessageSquare className="w-4 h-4 text-sky-400" />
-          {pmThreadCount > 0 && (
+          {pmUnreadTotal > 0 && (
             <span className="absolute -top-1 -left-1 min-w-[16px] h-4 px-1 rounded-full bg-sky-600 text-white text-[10px] font-bold flex items-center justify-center">
-              {pmThreadCount}
+              {pmUnreadTotal}
             </span>
           )}
         </button>

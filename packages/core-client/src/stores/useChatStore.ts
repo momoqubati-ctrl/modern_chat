@@ -152,6 +152,8 @@ export interface ChatState {
   lastLudoEventFx: Record<string, unknown> | null;
   competitionState: RoomCompetitionState | null;
   pmThreads: Record<string, PrivateMessageEntry[]>;
+  /** Per-thread read cursor (thread key → ts of last read message). Unread = incoming with ts > cursor. */
+  pmReadState: Record<string, number>;
   activePmTargetId: string | null;
   unreadMailCount: number;
   mailInbox: MailItem[];
@@ -611,6 +613,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   lastLudoEventFx: null,
   competitionState: null,
   pmThreads: {},
+  pmReadState: {},
   activePmTargetId: null,
   unreadMailCount: 0,
   mailInbox: [],
@@ -2025,6 +2028,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   markPmThreadRead: (targetSocketId) => {
     if (!targetSocketId) return;
+    // Record the local read cursor FIRST so the unread badge clears even when
+    // the peer is currently offline (emit is skipped on unresolvable peers).
+    const list = get().pmThreads[targetSocketId] || [];
+    const lastTs = list.length ? list[list.length - 1].ts : 0;
+    if (lastTs && lastTs > (get().pmReadState[targetSocketId] || 0)) {
+      set((s) => ({ pmReadState: { ...s.pmReadState, [targetSocketId]: lastTs } }));
+    }
     const peer = resolvePeerTarget(targetSocketId, get().onlineMap);
     if (!peer) return;
     socketClient?.emitCmd("pm_seen", { id: peer.socketId });
