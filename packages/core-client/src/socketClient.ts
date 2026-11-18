@@ -353,6 +353,8 @@ export class NewChatSocketClient {
       file?: string;
       fileType?: string;
       roomid?: string;
+      /** Client id shared with the optimistic local copy (local-fast room mode). */
+      cid?: string;
     },
   ): void {
     this.emitCmd("msg", {
@@ -361,7 +363,7 @@ export class NewChatSocketClient {
       ...(opts?.file ? { file: opts.file } : {}),
       ...(opts?.fileType ? { fileType: opts.fileType } : {}),
       ...(opts?.roomid ? { roomid: opts.roomid } : {}),
-      _cid: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      _cid: opts?.cid ?? `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       _cts: Date.now(),
     });
   }

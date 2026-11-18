@@ -505,6 +505,32 @@ function pushLimitedMessages(
   return merged.length > MAX_ROOM_MESSAGES ? merged.slice(merged.length - MAX_ROOM_MESSAGES) : merged;
 }
 
+/** Index of the optimistic copy (local-fast mode) that a server echo confirms. */
+function findPendingIndex(list: RoomMessagePayload[], cid: string): number {
+  if (!cid) return -1;
+  return list.findIndex((m) => m._cid === cid && m._pending === true);
+}
+
+/**
+ * Swaps optimistic copies for their authoritative server echoes (same `_cid`),
+ * so local-fast mode shows exactly ONE bubble per message — instantly, then
+ * with real server ids/time. No-op unless a pending copy exists.
+ */
+function reconcilePendingEchoes(
+  prev: RoomMessagePayload[],
+  incoming: RoomMessagePayload[],
+): RoomMessagePayload[] {
+  let out = prev;
+  for (const item of incoming) {
+    const cid = item._cid ? String(item._cid) : "";
+    const idx = findPendingIndex(out, cid);
+    if (idx < 0) continue;
+    if (out === prev) out = prev.slice();
+    out[idx] = { ...item, _pending: false };
+  }
+  return out;
+}
+
 function parseLikesArray(rawLikes: unknown): string[] {
   if (Array.isArray(rawLikes)) {
     return rawLikes.map((x) => String(x));
@@ -1005,6 +1031,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ) {
           return s;
         }
+        // Local-fast mode: swap the optimistic bubble for the server echo.
+        const reconciled = reconcilePendingEchoes(s.messages, [msgRecord]);
+        if (reconciled !== s.messages) return { messages: reconciled };
         return { messages: pushLimitedMessages(s.messages, payload) };
       });
     });
@@ -1015,7 +1044,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           (m) => !m?.roomid || !s.currentRoomId || m.roomid === s.currentRoomId,
         );
         if (!filtered.length) return s;
-        return { messages: pushLimitedMessages(s.messages, filtered) };
+        const reconciled = reconcilePendingEchoes(s.messages, filtered);
+        return { messages: pushLimitedMessages(reconciled, filtered) };
       });
     });
     socketClient.onCmd("delmsg", (mi: string) => {
@@ -1366,13 +1396,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const commentCid = String(data?.commentCid || "");
       const commentsCount = Number(data?.commentsCount ?? 0);
       if (!noteNid || !commentCid) return;
+      const deletedCids = new Set<string>(
+        Array.isArray(data?.deletedCids) ? data.deletedCids.map(String) : [commentCid],
+      );
       set((s) => ({
         notes: s.notes.map((n) => (n.nid === noteNid ? { ...n, commentsCount } : n)),
         noteCommentsMap: {
           ...s.noteCommentsMap,
-          [noteNid]: (s.noteCommentsMap[noteNid] || []).filter(
-            (c) => c.cid !== commentCid && c.parentCid !== commentCid && c.parent_cid !== commentCid
-          ),
+          [noteNid]: (s.noteCommentsMap[noteNid] || []).filter((c) => !deletedCids.has(c.cid)),
         },
       }));
     });
@@ -1949,7 +1980,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ? (replyOrOpts as { reply?: Record<string, unknown> | null; file?: string; fileType?: string })
         : { reply: (replyOrOpts as Record<string, unknown> | null) ?? null };
     if (!trimmed && !opts.file) return;
-    socketClient?.sendRoomMessage(trimmed, opts);
+
+    const state = get();
+    const cid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Server path is ALWAYS the source of truth — broadcasting/order is untouched.
+    socketClient?.sendRoomMessage(trimmed, { ...opts, cid });
+
+    // "local" rooms only: show the bubble instantly; the server echo replaces it.
+    const room = state.rooms.find((r) => r.id === state.currentRoomId);
+    if (room?.message_mode !== "local") return;
+    const me = state.me;
+    if (!me || !state.currentRoomId) return;
+
+    const optimistic = {
+      _cid: cid,
+      _pending: true,
+      _cts: Date.now(),
+      uid: me.uid || me.id,
+      lid: me.lid,
+      topic: me.topic,
+      msg: trimmed,
+      pic: me.pic,
+      power: me.power,
+      bg: me.bg,
+      gcol: me.gcol,
+      ucol: me.ucol,
+      mcol: me.mcol,
+      ico: me.ico,
+      gift_ico: me.gift_ico,
+      documents: Boolean(me.documents || me.documentationc),
+      documentationc: Boolean(me.documentationc || me.documents),
+      roomid: state.currentRoomId,
+      time: Date.now(),
+      likes: [],
+      ...(opts.reply ? { reply: opts.reply } : {}),
+      ...(opts.file ? { file: opts.file } : {}),
+      ...(opts.fileType ? { fileType: opts.fileType } : {}),
+    } as RoomMessagePayload;
+
+    set((s) => ({ messages: pushLimitedMessages(s.messages, optimistic) }));
+
+    // If the server never confirms it (blocked / muted / lost), drop the ghost.
+    setTimeout(() => {
+      set((s) => {
+        const idx = findPendingIndex(s.messages, cid);
+        if (idx < 0) return s;
+        const next = s.messages.slice();
+        next.splice(idx, 1);
+        return { messages: next };
+      });
+    }, 12_000);
   },
 
   likeRoomMessage: (mi) => {

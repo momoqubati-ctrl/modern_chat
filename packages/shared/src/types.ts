@@ -125,6 +125,8 @@ export interface RoomMessagePayload {
   file?: string;
   fileType?: "image" | "audio" | "video" | "file" | "youtube" | "tiktok";
   _cid?: string;
+  /** Client-side flag: optimistic copy awaiting the server echo (local-fast room mode). */
+  _pending?: boolean;
   _cts?: number;
   _srt?: number;
   _sts?: number;
