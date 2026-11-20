@@ -50,6 +50,22 @@ export const giftSendSchema = z.object({
   idempotencyKey: z.string().trim().max(128).optional(),
 });
 
+export const giftFeeSlabSchema = z.object({
+  slabMin: z.number().int().min(1).max(2_147_483_647),
+  slabMax: z.number().int().min(1).max(2_147_483_647).nullable(),
+  platformFeeBps: z.number().int().min(0).max(5000),
+}).refine(
+  (value) => value.slabMax === null || value.slabMax >= value.slabMin,
+  { message: "نهاية الشريحة يجب أن تكون أكبر من أو تساوي بدايتها", path: ["slabMax"] },
+);
+
+export const giftSettingsSchema = z.object({
+  maxQty: z.number().int().min(1).max(100),
+  rateLimitMax: z.number().int().min(1).max(100),
+  rateLimitWindowMs: z.number().int().min(1000).max(60_000),
+  giftEnabled: z.boolean(),
+});
+
 export const ludoManageSchema = z.object({
   op: z.enum(["sit", "stand", "start", "reset", "stop", "close", "add_bot", "remove_bot"]).optional(),
   action: z.enum(["sit", "stand", "start", "reset", "stop", "close", "add_bot", "remove_bot"]).optional(),

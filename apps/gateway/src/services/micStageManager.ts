@@ -477,7 +477,9 @@ export class MicStageManager {
   }
 
   /**
-   * O(1) Redis SCARD listener calculation designed for 10,000+ listeners per room.
+   * Live listener count for a broadcast room.
+   * The Redis SCARD is preceded by a throttled prune so stale socket ids left
+   * behind by restarts/reconnects are never reported as listeners.
    */
   async buildListenerCount(roomId: string): Promise<number> {
     const room = this.catalogStore.getRoomById(roomId);
@@ -491,8 +493,8 @@ export class MicStageManager {
     }
 
     try {
-      const memberCount = await getRedis().scard(`newchat:room:${roomId}:members`);
-      return Math.max(0, Number(memberCount || 0) - activeSpeakerCount);
+      const memberCount = await this.presenceDirectory.countOnlineRoomMembers(roomId);
+      return Math.max(0, memberCount - activeSpeakerCount);
     } catch {
       let localMembers = 0;
       for (const s of this.presenceDirectory.getAllLocalSessions()) {
@@ -504,13 +506,22 @@ export class MicStageManager {
     }
   }
 
+  async emitListenerCountToSocket(socket: Socket, roomId: string): Promise<void> {
+    const count = await this.buildListenerCount(roomId);
+    socket.emit("broadcasting", { cmd: "listeners-count", roomid: roomId, count });
+  }
+
+  async emitListenerCountToRoom(roomId: string): Promise<void> {
+    const count = await this.buildListenerCount(roomId);
+    this.io.to(roomId).emit("broadcasting", { cmd: "listeners-count", roomid: roomId, count });
+  }
+
   async emitStateToSocket(socket: Socket, roomId: string): Promise<void> {
     const state = await this.loadRoomState(roomId);
     const likes = await this.getRoomLikes(roomId);
     socket.emit("broadcasting", { cmd: "all", roomid: roomId, likes, ...state });
     socket.emit("broadcasting", { cmd: "room-likes", roomid: roomId, total: likes });
-    const count = await this.buildListenerCount(roomId);
-    socket.emit("broadcasting", { cmd: "listeners-count", roomid: roomId, count });
+    await this.emitListenerCountToSocket(socket, roomId);
   }
 
   async emitStateToRoom(roomId: string): Promise<void> {
@@ -518,8 +529,7 @@ export class MicStageManager {
     const likes = await this.getRoomLikes(roomId);
     this.io.to(roomId).emit("broadcasting", { cmd: "all", roomid: roomId, likes, ...state });
     this.io.to(roomId).emit("broadcasting", { cmd: "room-likes", roomid: roomId, total: likes });
-    const count = await this.buildListenerCount(roomId);
-    this.io.to(roomId).emit("broadcasting", { cmd: "listeners-count", roomid: roomId, count });
+    await this.emitListenerCountToRoom(roomId);
   }
 
   async getRoomLikes(roomId: string): Promise<number> {

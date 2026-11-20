@@ -6,7 +6,7 @@ import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import { closeDb, closeRedis } from "@newchat/db";
+import { closeDb, closeRedis, ensureGiftSystemTablesExist, ensureFeedTablesExist } from "@newchat/db";
 import { startGateway } from "@newchat/gateway";
 import { apiConfig } from "./config.js";
 import { closeQueues } from "./lib/queues.js";
@@ -14,14 +14,18 @@ import { ddosConsumeRequest, getRequestCountry, getRequestRealIp } from "./lib/r
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCpRoutes } from "./routes/cp.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerHostingRoutes } from "./routes/hosting.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerPublicRoutes } from "./routes/public.js";
 import { registerWalletRoutes } from "./routes/wallet.js";
+import { registerFeedRoutes } from "./routes/feed.js";
 
 const DDOS_BYPASS_PATHS = new Set(["/health", "/ping", "/healthz", "/readyz"]);
 
 async function start() {
   fs.mkdirSync(apiConfig.uploadDir, { recursive: true });
+  await ensureGiftSystemTablesExist();
+  await ensureFeedTablesExist();
 
   const app = Fastify({
     logger: {
@@ -114,6 +118,8 @@ async function start() {
   await registerMediaRoutes(app);
   await registerWalletRoutes(app);
   await registerCpRoutes(app);
+  await registerHostingRoutes(app);
+  await registerFeedRoutes(app);
 
   if (fs.existsSync(apiConfig.webDistDir)) {
     await app.register(fastifyStatic, {
@@ -133,7 +139,8 @@ async function start() {
         !cleanPath.startsWith("/public/") &&
         !cleanPath.startsWith("/wallet/") &&
         !cleanPath.startsWith("/cp/") &&
-        !cleanPath.startsWith("/media/")
+        !cleanPath.startsWith("/media/") &&
+        !cleanPath.startsWith("/api/feed/")
       ) {
         const indexPath = path.join(apiConfig.webDistDir, "index.html");
         if (fs.existsSync(indexPath)) {

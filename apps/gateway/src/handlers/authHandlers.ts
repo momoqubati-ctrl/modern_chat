@@ -411,6 +411,11 @@ export function createAuthHandlers(ctx: GatewayContext) {
     socket.emit("msg", { cmd: "cover", data: ctx.catalogStore.getCovers() });
     socket.emit("msg", { cmd: "room_badges", data: ctx.catalogStore.getRoomBadges() });
     socket.emit("msg", { cmd: "site_badges", data: ctx.catalogStore.getSiteBadges() });
+    const cutsRules = ctx.catalogStore.getShortcutRules();
+    socket.emit("msg", {
+      cmd: "shortcuts",
+      data: cutsRules.map((r) => ({ text1: r.text1, text2: r.text2 })),
+    });
     socket.emit("msg", {
       cmd: "gifts_git",
       data: {
@@ -1107,11 +1112,12 @@ export function createAuthHandlers(ctx: GatewayContext) {
 
       const existing = await ctx.presenceDirectory.getSessionByToken(token);
       if (existing) {
-        const reassigned = await ctx.presenceDirectory.reassignSessionSocket(existing.id, socket);
+        const requestedRoom =
+          requestedRoomId && ctx.catalogStore.getRoomById(requestedRoomId) ? requestedRoomId : "";
+        const reassigned = await ctx.presenceDirectory.reassignSessionSocket(existing.id, socket, {
+          roomId: requestedRoom || undefined,
+        });
         if (reassigned) {
-          if (requestedRoomId && ctx.catalogStore.getRoomById(requestedRoomId)) {
-            reassigned.roomid = requestedRoomId;
-          }
           await completeSessionEntry(socket, reassigned, { silent: true });
           socket.emit("msg", {
             cmd: "rc_room_state",

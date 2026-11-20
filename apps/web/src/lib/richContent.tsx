@@ -1,6 +1,9 @@
 import { memo, type ReactNode } from "react";
+import { useChatStore } from "@newchat/core-client";
+import { EMOJI_IMAGE_CLASS, EMOJI_INLINE_CLASS, isEmojiAssetPath, parseEmojiSegments } from "./emojiShortcuts.js";
 import { isSafeLinkUrl, resolveAssetUrl } from "./mediaUrl.js";
 import { VideoPlayCard, YouTubePlayCard } from "../components/media/MediaPlayCard.js";
+import { VoiceNotePlayer } from "../components/media/VoiceNotePlayer.js";
 
 export interface ParsedRichMessage {
   isCard: boolean;
@@ -60,7 +63,47 @@ export function detectAttachmentTypeFromPath(filePath: string): "image" | "audio
   return "file";
 }
 
-function renderInlineTextWithLinks(text: string, keyPrefix: string, dark = true): ReactNode[] {
+function renderInlineTextWithSmileys(
+  text: string,
+  keyPrefix: string,
+  emos?: readonly string[]
+): ReactNode[] {
+  const decoded = decodeLegacyEscapedText(text);
+  if (!emos || emos.length === 0) {
+    return [decoded];
+  }
+
+  const segments = parseEmojiSegments(decoded, emos);
+  const out: ReactNode[] = [];
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i]!;
+    if (seg.type === "text") {
+      out.push(seg.text);
+    } else {
+      const resolved = resolveAssetUrl(seg.file, "emo", "");
+      out.push(
+        <img
+          key={`${keyPrefix}-emo-${i}-${seg.index}`}
+          src={resolved}
+          alt={seg.shortcut}
+          title={seg.shortcut}
+          loading="lazy"
+          className={EMOJI_INLINE_CLASS}
+        />
+      );
+    }
+  }
+
+  return out;
+}
+
+function renderInlineTextWithLinks(
+  text: string,
+  keyPrefix: string,
+  dark = true,
+  emos?: readonly string[]
+): ReactNode[] {
   const nodes: ReactNode[] = [];
   const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
   let lastIndex = 0;
@@ -69,7 +112,9 @@ function renderInlineTextWithLinks(text: string, keyPrefix: string, dark = true)
 
   while ((match = urlRe.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      nodes.push(decodeLegacyEscapedText(text.slice(lastIndex, match.index)));
+      nodes.push(
+        ...renderInlineTextWithSmileys(text.slice(lastIndex, match.index), `${keyPrefix}-t${idx}`, emos)
+      );
     }
     const rawHref = match[1]!;
     if (isSafeLinkUrl(rawHref)) {
@@ -109,14 +154,14 @@ function renderInlineTextWithLinks(text: string, keyPrefix: string, dark = true)
         );
       }
     } else {
-      nodes.push(decodeLegacyEscapedText(rawHref));
+      nodes.push(...renderInlineTextWithSmileys(rawHref, `${keyPrefix}-raw-${idx}`, emos));
     }
     lastIndex = match.index + rawHref.length;
     idx += 1;
   }
 
   if (lastIndex < text.length) {
-    nodes.push(decodeLegacyEscapedText(text.slice(lastIndex)));
+    nodes.push(...renderInlineTextWithSmileys(text.slice(lastIndex), `${keyPrefix}-end`, emos));
   }
 
   return nodes;
@@ -131,7 +176,12 @@ function normalizeHtmlEntities(str: string): string {
     .replace(/&#39;/gi, "'");
 }
 
-function renderSafeTextWithLineBreaks(text: string, keyPrefix: string, dark = true): ReactNode[] {
+function renderSafeTextWithLineBreaks(
+  text: string,
+  keyPrefix: string,
+  dark = true,
+  emos?: readonly string[]
+): ReactNode[] {
   const clean = String(text ?? "").trim();
   if (!clean) return [];
 
@@ -143,7 +193,7 @@ function renderSafeTextWithLineBreaks(text: string, keyPrefix: string, dark = tr
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i]!;
     if (part) {
-      nodes.push(...renderInlineTextWithLinks(part, `${keyPrefix}-l${i}`, dark));
+      nodes.push(...renderInlineTextWithLinks(part, `${keyPrefix}-l${i}`, dark, emos));
     }
     if (i < parts.length - 1) {
       nodes.push(<br key={`${keyPrefix}-br-${i}`} />);
@@ -158,7 +208,11 @@ function renderSafeTextWithLineBreaks(text: string, keyPrefix: string, dark = tr
  * Handles both raw HTML (<div class="ssss">) and server-escaped (&#x3C;div class="ssss">).
  * Never executes arbitrary HTML or raw DOM injection.
  */
-export function parseSafeRichContent(rawInput: unknown, dark = true): ParsedRichMessage {
+export function parseSafeRichContent(
+  rawInput: unknown,
+  dark = true,
+  emos?: readonly string[]
+): ParsedRichMessage {
   const source = String(rawInput ?? "").trim();
   if (!source) {
     return { isCard: false, nodes: [] };
@@ -231,7 +285,7 @@ export function parseSafeRichContent(rawInput: unknown, dark = true): ParsedRich
   }
 
   // 4. Render user caption nodes (if any)
-  const nodes = renderSafeTextWithLineBreaks(userCaption, "rich", dark);
+  const nodes = renderSafeTextWithLineBreaks(userCaption, "rich", dark, emos);
 
   return { isCard, cardLink, nodes };
 }
@@ -240,7 +294,7 @@ export function parseSafeRichContent(rawInput: unknown, dark = true): ParsedRich
 // SafeRichText — parse cache + memo
 //
 // Parsing is regex-heavy (URL extraction, sanitization, markup) and used for
-// every visible chat/wall/PM row. Results are deterministic per (text, dark),
+// every visible chat/wall/PM row. Results are deterministic per (text, dark, emos),
 // so a module-level cache survives virtualizer row remounts, and memo() skips
 // re-renders whose text/dark props did not change.
 // ---------------------------------------------------------------------------
@@ -248,19 +302,37 @@ export function parseSafeRichContent(rawInput: unknown, dark = true): ParsedRich
 const PARSE_CACHE_MAX = 500;
 const parseCache = new Map<string, ParsedRichMessage>();
 
-function getCachedParse(text: string, dark: boolean): ParsedRichMessage {
-  const key = `${dark ? "d" : "l"}|${text}`;
+function getCachedParse(
+  text: string,
+  dark: boolean,
+  emos: readonly string[],
+  emosKey: string
+): ParsedRichMessage {
+  const key = `${dark ? "d" : "l"}|${emosKey}|${text}`;
   const cached = parseCache.get(key);
   if (cached) return cached;
-  const parsed = parseSafeRichContent(text, dark);
+  const parsed = parseSafeRichContent(text, dark, emos);
   if (parseCache.size >= PARSE_CACHE_MAX) parseCache.clear();
   parseCache.set(key, parsed);
   return parsed;
 }
 
-function SafeRichTextImpl({ text, dark = true }: { text: unknown; dark?: boolean }) {
+function SafeRichTextImpl({
+  text,
+  dark = true,
+  emos: propEmos,
+}: {
+  text: unknown;
+  dark?: boolean;
+  emos?: readonly string[];
+}) {
+  const storeEmos = useChatStore((s) => s.emos);
+  const effectiveEmos = propEmos ?? storeEmos;
+  const emosKey = effectiveEmos.length > 0 ? effectiveEmos.join(",") : "";
   const parsed =
-    typeof text === "string" ? getCachedParse(text, dark) : parseSafeRichContent(text, dark);
+    typeof text === "string"
+      ? getCachedParse(text, dark, effectiveEmos, emosKey)
+      : parseSafeRichContent(text, dark, effectiveEmos);
   const youtubeId =
     parsed.cardLink ? extractYoutubeVideoId(parsed.cardLink) : null;
   const mediaType =
@@ -283,7 +355,7 @@ function SafeRichTextImpl({ text, dark = true }: { text: unknown; dark?: boolean
         {hasText && <div dir="rtl" className="break-words font-medium text-right">{parsed.nodes}</div>}
         {youtubeId && <YouTubePlayCard youtubeId={youtubeId} dark={dark} />}
         {showMediaPreview && parsed.cardLink && (
-          <AttachmentRenderer file={parsed.cardLink} fileType={mediaType!} />
+          <AttachmentRenderer file={parsed.cardLink} fileType={mediaType!} dark={dark} />
         )}
         {parsed.isCard && !isMedia && parsed.cardLink && (
           <a
@@ -317,9 +389,11 @@ export const SafeRichText = memo(SafeRichTextImpl);
 export function AttachmentRenderer({
   file,
   fileType,
+  dark = false,
 }: {
   file?: string;
   fileType?: string;
+  dark?: boolean;
 }) {
   if (!file) return null;
   const resolved = resolveAssetUrl(file, "sendfile", "");
@@ -327,6 +401,19 @@ export function AttachmentRenderer({
   const effectiveType = fileType || detectAttachmentTypeFromPath(file);
 
   if (effectiveType === "image") {
+    if (isEmojiAssetPath(file)) {
+      return (
+        <a
+          href={resolved}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block align-middle"
+          title="سمايل"
+        >
+          <img src={resolved} alt="سمايل" loading="lazy" className={EMOJI_IMAGE_CLASS} />
+        </a>
+      );
+    }
     return (
       <a
         href={resolved}
@@ -346,9 +433,11 @@ export function AttachmentRenderer({
 
   if (effectiveType === "audio") {
     return (
-      <div className="mt-1.5 max-w-xs">
-        <audio controls preload="none" src={resolved} className="h-9 w-full" />
-      </div>
+      <VoiceNotePlayer
+        src={resolved}
+        dark={dark}
+        className="mt-1.5 w-full"
+      />
     );
   }
 

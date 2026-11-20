@@ -79,6 +79,7 @@ export function setMediaPlaying(playing: boolean): void {
 }
 
 export function closeMediaPlayback(): void {
+  if (!state.current && !state.playing) return;
   setState({ current: null, playing: false, generation: state.generation + 1 });
 }
 

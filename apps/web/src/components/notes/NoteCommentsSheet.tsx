@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpDown,
   BadgeCheck,
@@ -17,6 +17,8 @@ import type { NoteCommentRecord } from "@newchat/shared";
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
 import { canAccessControlPanel } from "../../lib/permissions.js";
 import { formatNoteRelativeAge } from "./noteTypes.js";
+import { SafeRichText } from "../../lib/richContent.js";
+import { applyTextShortcuts } from "../../lib/emojiShortcuts.js";
 
 const QUICK_EMOJIS = ["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"] as const;
 
@@ -55,6 +57,7 @@ export function NoteCommentsSheet({
   const toggleNoteCommentLike = useChatStore((s) => s.toggleNoteCommentLike);
   const deleteNoteComment = useChatStore((s) => s.deleteNoteComment);
   const pushNotice = useChatStore((s) => s.pushNotice);
+  const shortcuts = useChatStore((s) => s.shortcuts);
 
   const [sortMode, setSortMode] = useState<"newest" | "top">("newest");
   const [expandedHeight, setExpandedHeight] = useState(false);
@@ -80,35 +83,37 @@ export function NoteCommentsSheet({
     }
   }, [open]);
 
-  const { roots, repliesByParent } = useMemo(() => {
-    const parentList: NoteCommentRecord[] = [];
+  const { roots, childrenByCid } = useMemo(() => {
+    const rootList: NoteCommentRecord[] = [];
     const childMap: Record<string, NoteCommentRecord[]> = {};
+    const knownCids = new Set(rawComments.map((c) => c.cid));
 
     for (const c of rawComments) {
-      const parentCid = c.parentCid || c.parent_cid;
-      if (!parentCid) {
-        parentList.push(c);
-      } else {
+      const parentCid = c.parentCid || c.parent_cid || "";
+      if (parentCid && parentCid !== c.cid && knownCids.has(parentCid)) {
         if (!childMap[parentCid]) childMap[parentCid] = [];
         childMap[parentCid]!.push(c);
+      } else {
+        // Top-level comment, or a reply whose parent was deleted.
+        rootList.push(c);
       }
     }
 
     // Sort roots
     if (sortMode === "top") {
-      parentList.sort((a, b) => {
+      rootList.sort((a, b) => {
         const likesA = Number(a.likesCount ?? a.likes_count ?? 0);
         const likesB = Number(b.likesCount ?? b.likes_count ?? 0);
         return likesB - likesA;
       });
     } else {
-      parentList.sort(
+      rootList.sort(
         (a, b) =>
           Number(b.createdAt ?? b.created_at ?? 0) - Number(a.createdAt ?? a.created_at ?? 0)
       );
     }
 
-    // Sort replies oldest->newest chronologically inside each parent thread
+    // Sort every reply branch oldest->newest chronologically
     for (const pid of Object.keys(childMap)) {
       childMap[pid]!.sort(
         (a, b) =>
@@ -116,7 +121,7 @@ export function NoteCommentsSheet({
       );
     }
 
-    return { roots: parentList, repliesByParent: childMap };
+    return { roots: rootList, childrenByCid: childMap };
   }, [rawComments, sortMode]);
 
   if (!open) return null;
@@ -135,9 +140,10 @@ export function NoteCommentsSheet({
       pushNotice("التعليق متاح للأعضاء المسجلين فقط", { force: 1 });
       return;
     }
+    const expanded = applyTextShortcuts(body, shortcuts);
     addNoteComment(
       noteNid,
-      body,
+      expanded,
       replyTarget?.parentCid || undefined,
       replyTarget?.topic || undefined
     );
@@ -161,21 +167,189 @@ export function NoteCommentsSheet({
     const cleanTopic = (comment.replyToTopic || comment.reply_to_topic || "").trim();
     const parentCid = comment.parentCid || comment.parent_cid;
     return (
-      <p
+      <div
         dir="auto"
-        className={`text-[13px] leading-relaxed break-words ${
+        className={`text-[13px] leading-relaxed break-words text-right ${
           dark ? "text-slate-100" : "text-slate-900"
         }`}
       >
         {cleanTopic && parentCid ? (
           <>
             <span className="text-pink-500 font-bold ms-1">@{cleanTopic}</span>{" "}
-            <span>{comment.body}</span>
+            <SafeRichText text={comment.body} dark={dark} />
           </>
         ) : (
-          comment.body
+          <SafeRichText text={comment.body} dark={dark} />
         )}
-      </p>
+      </div>
+    );
+  };
+
+  const renderChildNode = (
+    comment: NoteCommentRecord,
+    depth: number,
+    ancestorRails: number[]
+  ): ReactNode => {
+    const childTopic = comment.authorTopic || comment.author_topic || "عضو";
+    const childPic = comment.authorPic || comment.author_pic;
+    const childUcol = comment.authorUcol || comment.author_ucol;
+    const childVerified = comment.authorVerified || comment.author_verified;
+    const childLiked = comment.likedByMe || comment.liked_by_me;
+    const childLikesCount = Number(comment.likesCount ?? comment.likes_count ?? 0);
+    const childTime = comment.createdAt ?? comment.created_at;
+    const children = childrenByCid[comment.cid] || [];
+    const indent = depth * 36;
+    const avatarCenter = indent + 14;
+    const parentRail = depth === 1 ? 17 : (depth - 1) * 36 + 14;
+    const connectorWidth = Math.max(10, indent - parentRail - 2);
+    const railColor = dark ? "bg-slate-700" : "bg-slate-300";
+
+    return (
+      <div key={comment.cid} className="relative">
+        {/* Rails from ancestor threads that continue past this branch */}
+        {ancestorRails.map((right) => (
+          <div
+            key={`rail-${right}`}
+            aria-hidden="true"
+            className={`absolute top-0 bottom-0 w-[1.5px] ${railColor}`}
+            style={{ right }}
+          />
+        ))}
+
+        {/* Curved L-connector branching from the parent trunk into this reply avatar */}
+        <div
+          aria-hidden="true"
+          className={`absolute top-0 h-[18px] rounded-br-xl border-r-[1.5px] border-b-[1.5px] ${
+            dark ? "border-slate-700" : "border-slate-300"
+          }`}
+          style={{ right: parentRail, width: connectorWidth }}
+        />
+
+        <div className="flex items-stretch gap-2" style={{ paddingRight: indent }}>
+          <div className="relative flex flex-col items-center w-7 shrink-0">
+            <img
+              src={resolveAssetUrl(childPic || "pic.png", "pic", "/pic.png")}
+              alt={childTopic}
+              className="w-7 h-7 rounded-full object-cover border border-slate-500/30 z-10 shrink-0 mt-0.5"
+            />
+            {children.length > 0 && (
+              <div aria-hidden="true" className={`w-[1.5px] flex-1 mt-1 ${railColor}`} />
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0 pb-2.5">
+            <div className="flex items-center gap-1">
+              <span
+                dir="auto"
+                className="text-xs font-extrabold truncate"
+                style={
+                  childUcol && (!dark || childUcol.toLowerCase() !== "#000000")
+                    ? { color: childUcol }
+                    : undefined
+                }
+              >
+                {childTopic}
+              </span>
+              {childVerified && (
+                <BadgeCheck className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400 shrink-0" />
+              )}
+            </div>
+
+            <div className="mt-0.5">{renderReplyMentionBody(comment)}</div>
+
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleReplyClick(comment.cid, childTopic)}
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition ${
+                    dark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  رد
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const willLike = !childLiked;
+                    toggleNoteCommentLike(noteNid, comment.cid);
+                    pushNotice(
+                      willLike ? "تم التفاعل والإعجاب بالرد ❤️" : "تم إلغاء الإعجاب بالرد",
+                      { topic: "إعجاب" }
+                    );
+                  }}
+                  className={`inline-flex items-center gap-1 text-xs font-bold transition active:scale-90 ${
+                    childLiked
+                      ? "text-rose-500 animate-action-pop"
+                      : dark
+                        ? "text-slate-400 hover:text-rose-400"
+                        : "text-slate-500 hover:text-rose-500"
+                  }`}
+                >
+                  <Heart
+                    className={`w-3.5 h-3.5 ${childLiked ? "fill-rose-500 text-rose-500" : ""}`}
+                  />
+                  {childLikesCount > 0 && <span>{childLikesCount}</span>}
+                </button>
+
+                <span
+                  className={`text-[11px] font-semibold ${
+                    dark ? "text-slate-500" : "text-slate-400"
+                  }`}
+                >
+                  {formatNoteRelativeAge(childTime)}
+                </span>
+              </div>
+
+              {canDeleteComment(comment) && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenMenuCid((cur) => (cur === comment.cid ? null : comment.cid))
+                    }
+                    aria-label="خيارات الرد"
+                    className={`px-2 py-0.5 rounded-full transition ${
+                      dark
+                        ? "bg-slate-800/80 text-slate-400 hover:text-white"
+                        : "bg-slate-100 text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <MoreHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                  {openMenuCid === comment.cid && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deleteNoteComment(noteNid, comment.cid);
+                        setOpenMenuCid(null);
+                      }}
+                      className="absolute left-0 bottom-7 z-20 inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-lg whitespace-nowrap"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>حذف الرد</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {children.length > 0 && (
+          <div className="relative">
+            {children.map((child, idx) =>
+              renderChildNode(child, depth + 1, [
+                ...ancestorRails,
+                ...(idx < children.length - 1 ? [avatarCenter] : []),
+              ])
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -306,7 +480,7 @@ export function NoteCommentsSheet({
             </div>
           ) : (
             roots.map((parent) => {
-              const children = repliesByParent[parent.cid] || [];
+              const children = childrenByCid[parent.cid] || [];
               const hasReplies = children.length > 0;
               const isCollapsed = Boolean(collapsedParents[parent.cid]);
               const showTreeTrunk = hasReplies && !isCollapsed;
@@ -488,152 +662,16 @@ export function NoteCommentsSheet({
                         </button>
                       </div>
 
-                      {/* Nested Child Comments */}
+                      {/* Nested Child Comments (recursive replies) */}
                       {!isCollapsed && (
-                        <div>
-                          {children.map((child, cIdx) => {
-                            const isLastChild = cIdx === children.length - 1;
-                            const childTopic = child.authorTopic || child.author_topic || "عضو";
-                            const childPic = child.authorPic || child.author_pic;
-                            const childUcol = child.authorUcol || child.author_ucol;
-                            const childVerified = child.authorVerified || child.author_verified;
-                            const childLiked = child.likedByMe || child.liked_by_me;
-                            const childLikesCount = Number(child.likesCount ?? child.likes_count ?? 0);
-                            const childTime = child.createdAt ?? child.created_at;
-
-                            return (
-                              <div key={child.cid} className="relative flex items-stretch pr-9 pb-2.5">
-                                {!isLastChild && (
-                                  <div
-                                    aria-hidden="true"
-                                    className={`absolute right-[17px] top-0 bottom-0 w-[1.5px] ${
-                                      dark ? "bg-slate-700" : "bg-slate-300"
-                                    }`}
-                                  />
-                                )}
-                                <div
-                                  aria-hidden="true"
-                                  className={`absolute right-[17px] top-0 w-4 h-[18px] rounded-br-xl border-r-[1.5px] border-b-[1.5px] ${
-                                    dark ? "border-slate-700" : "border-slate-300"
-                                  }`}
-                                />
-
-                                <div className="flex items-start gap-2 flex-1 min-w-0">
-                                  <img
-                                    src={resolveAssetUrl(childPic || "pic.png", "pic", "/pic.png")}
-                                    alt={childTopic}
-                                    className="w-7 h-7 rounded-full object-cover border border-slate-500/30 shrink-0 mt-0.5"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1">
-                                      <span
-                                        dir="auto"
-                                        className="text-xs font-extrabold truncate"
-                                        style={
-                                          childUcol && (!dark || childUcol.toLowerCase() !== "#000000")
-                                            ? { color: childUcol }
-                                            : undefined
-                                        }
-                                      >
-                                        {childTopic}
-                                      </span>
-                                      {childVerified && (
-                                        <BadgeCheck className="w-3.5 h-3.5 text-sky-500 dark:text-sky-400 shrink-0" />
-                                      )}
-                                    </div>
-
-                                    <div className="mt-0.5">{renderReplyMentionBody(child)}</div>
-
-                                    <div className="mt-1.5 flex items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleReplyClick(parent.cid, childTopic)}
-                                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition ${
-                                            dark
-                                              ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                          }`}
-                                        >
-                                          رد
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const willLike = !childLiked;
-                                            toggleNoteCommentLike(noteNid, child.cid);
-                                            pushNotice(
-                                              willLike
-                                                ? "تم التفاعل والإعجاب بالرد ❤️"
-                                                : "تم إلغاء الإعجاب بالرد",
-                                              { topic: "إعجاب" }
-                                            );
-                                          }}
-                                          className={`inline-flex items-center gap-1 text-xs font-bold transition active:scale-90 ${
-                                            childLiked
-                                              ? "text-rose-500 animate-action-pop"
-                                              : dark
-                                                ? "text-slate-400 hover:text-rose-400"
-                                                : "text-slate-500 hover:text-rose-500"
-                                          }`}
-                                        >
-                                          <Heart
-                                            className={`w-3.5 h-3.5 ${
-                                              childLiked ? "fill-rose-500 text-rose-500" : ""
-                                            }`}
-                                          />
-                                          {childLikesCount > 0 && <span>{childLikesCount}</span>}
-                                        </button>
-
-                                        <span
-                                          className={`text-[11px] font-semibold ${
-                                            dark ? "text-slate-500" : "text-slate-400"
-                                          }`}
-                                        >
-                                          {formatNoteRelativeAge(childTime)}
-                                        </span>
-                                      </div>
-
-                                      {canDeleteComment(child) && (
-                                        <div className="relative">
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setOpenMenuCid((cur) =>
-                                                cur === child.cid ? null : child.cid
-                                              )
-                                            }
-                                            aria-label="خيارات الرد"
-                                            className={`px-2 py-0.5 rounded-full transition ${
-                                              dark
-                                                ? "bg-slate-800/80 text-slate-400 hover:text-white"
-                                                : "bg-slate-100 text-slate-500 hover:text-slate-800"
-                                            }`}
-                                          >
-                                            <MoreHorizontal className="w-3.5 h-3.5" />
-                                          </button>
-                                          {openMenuCid === child.cid && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                deleteNoteComment(noteNid, child.cid);
-                                                setOpenMenuCid(null);
-                                              }}
-                                              className="absolute left-0 bottom-7 z-20 inline-flex items-center gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-lg whitespace-nowrap"
-                                            >
-                                              <Trash2 className="w-3 h-3" />
-                                              <span>حذف الرد</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                        <div className="relative">
+                          {children.map((child, cIdx) =>
+                            renderChildNode(
+                              child,
+                              1,
+                              cIdx < children.length - 1 ? [17] : []
+                            )
+                          )}
                         </div>
                       )}
                     </div>

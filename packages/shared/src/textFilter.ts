@@ -31,6 +31,73 @@ export function toEnglishDigits(str: unknown): string {
   return out;
 }
 
+const ARABIC_DIGIT_CHARS = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+
+export function toArabicDigits(str: unknown): string {
+  return String(str ?? "").replace(/[0-9]/g, (d) => ARABIC_DIGIT_CHARS[Number(d)] ?? d);
+}
+
+/**
+ * Fast in-memory text shortcut replacement.
+ * Automatically handles both Latin and Arabic-Indic numerals (e.g. س1 and س١).
+ */
+export function applyTextShortcuts(
+  text: string,
+  shortcuts?: ReadonlyArray<{ text1?: string; text2?: string; title?: string; msg?: string }>,
+): string {
+  const source = String(text ?? "");
+  if (!source || !shortcuts || shortcuts.length === 0) return source;
+
+  const map = new Map<string, string>();
+  const triggers: string[] = [];
+
+  for (const s of shortcuts) {
+    const raw = String(s.text1 ?? s.title ?? "").trim();
+    if (!raw) continue;
+    const rep = String(s.text2 ?? s.msg ?? "");
+
+    // 1. Direct trigger
+    if (!map.has(raw)) {
+      map.set(raw, rep);
+      triggers.push(raw);
+    }
+
+    // 2. Latin digits variant (e.g. س١ -> س1)
+    const latin = toEnglishDigits(raw);
+    if (latin && !map.has(latin)) {
+      map.set(latin, rep);
+      triggers.push(latin);
+    }
+
+    // 3. Arabic digits variant (e.g. س1 -> س١)
+    const arabic = toArabicDigits(latin || raw);
+    if (arabic && !map.has(arabic)) {
+      map.set(arabic, rep);
+      triggers.push(arabic);
+    }
+  }
+
+  if (triggers.length === 0) return source;
+
+  // Sort triggers by length descending so longer phrases replace before subphrases
+  triggers.sort((a, b) => b.length - a.length);
+
+  const escaped = triggers.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const regex = new RegExp(`(?<=^|[\\s\\p{P}])(${escaped.join("|")})(?=$|[\\s\\p{P}])`, "gu");
+
+  let current = source;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = current.replace(regex, (match) => {
+      const rep = map.get(match);
+      return rep !== undefined ? rep : match;
+    });
+    if (next === current) break;
+    current = next;
+  }
+
+  return current;
+}
+
 const ALLOWED_SEPARATOR = "\\s,;\"'|";
 
 export function findWord(word: string, str: string): boolean {

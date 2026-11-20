@@ -7,9 +7,13 @@ import {
   bigint,
   boolean,
   numeric,
+  smallint,
   index,
   uniqueIndex,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { users } from "./users.js";
 
 export const coin_ledger = pgTable(
   "coin_ledger",
@@ -32,7 +36,9 @@ export const coin_ledger = pgTable(
     created_at: bigint("created_at", { mode: "number" }).notNull(),
   },
   (t) => [
-    index("idx_coin_ledger_txid").on(t.txid),
+    uniqueIndex("uniq_coin_ledger_txid_event_user")
+      .on(t.txid, t.event_type, t.user_idreg)
+      .where(sql`${t.txid} <> ''`),
     index("idx_coin_ledger_user_uid").on(t.user_uid, t.created_at),
     index("idx_coin_ledger_created_at").on(t.created_at),
   ]
@@ -99,6 +105,85 @@ export const site_master_wallet_ledger = pgTable(
     index("idx_smwl_txid").on(t.txid),
     index("idx_smwl_site").on(t.site_id, t.created_at),
   ]
+);
+
+export const gift_fee_slabs = pgTable(
+  "gift_fee_slabs",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    slab_min_coin: integer("slab_min_coin").notNull(),
+    slab_max_coin: integer("slab_max_coin"),
+    platform_fee_bps: smallint("platform_fee_bps").notNull(),
+    is_active: boolean("is_active").notNull().default(true),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    updated_at: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uniq_gift_fee_slabs_min").on(t.slab_min_coin),
+    check("chk_gift_fee_slabs_bps", sql`${t.platform_fee_bps} >= 0 AND ${t.platform_fee_bps} <= 5000`),
+    check("chk_gift_fee_slabs_range", sql`${t.slab_min_coin} >= 1 AND (${t.slab_max_coin} IS NULL OR ${t.slab_max_coin} >= ${t.slab_min_coin})`),
+  ],
+);
+
+export const gift_settings = pgTable(
+  "gift_settings",
+  {
+    key: varchar("key", { length: 64 }).primaryKey(),
+    value: text("value").notNull(),
+    updated_at: bigint("updated_at", { mode: "number" }).notNull(),
+    updated_by: integer("updated_by").references(() => users.idreg, { onDelete: "set null" }),
+  },
+);
+
+export const site_funding_log = pgTable(
+  "site_funding_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    amount_coins: bigint("amount_coins", { mode: "number" }).notNull(),
+    external_ref: varchar("external_ref", { length: 255 }).notNull(),
+    note: text("note").default(""),
+    funded_by: varchar("funded_by", { length: 255 }).notNull().default("hosting_owner"),
+    idempotency_key: varchar("idempotency_key", { length: 128 }).notNull(),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uniq_site_funding_idempotency").on(t.idempotency_key),
+    index("idx_site_funding_created_at").on(t.created_at),
+    check("chk_site_funding_positive", sql`${t.amount_coins} > 0`),
+  ],
+);
+
+export const hosting_owner_wallet = pgTable(
+  "hosting_owner_wallet",
+  {
+    id: integer("id").primaryKey().default(1),
+    balance_coins: bigint("balance_coins", { mode: "number" }).notNull().default(0),
+    status: varchar("status", { length: 32 }).notNull().default("active"),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    updated_at: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [check("chk_hosting_owner_wallet_singleton", sql`${t.id} = 1`)],
+);
+
+export const hosting_owner_wallet_ledger = pgTable(
+  "hosting_owner_wallet_ledger",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    txid: varchar("txid", { length: 128 }).notNull(),
+    event_type: varchar("event_type", { length: 64 }).notNull(),
+    amount: bigint("amount", { mode: "number" }).notNull(),
+    before_balance: bigint("before_balance", { mode: "number" }).notNull(),
+    after_balance: bigint("after_balance", { mode: "number" }).notNull(),
+    reference_table: varchar("reference_table", { length: 128 }).default(""),
+    reference_id: bigint("reference_id", { mode: "number" }).default(0),
+    note: text("note").default(""),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uniq_hosting_owner_wallet_ledger_txid").on(t.txid),
+    index("idx_hosting_owner_wallet_ledger_created_at").on(t.created_at),
+    check("chk_hosting_owner_wallet_ledger_amount", sql`${t.amount} > 0`),
+  ],
 );
 
 export const agents = pgTable(

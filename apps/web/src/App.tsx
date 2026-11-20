@@ -3,6 +3,7 @@ import { useChatStore } from "@newchat/core-client";
 import { ChatRoomWorkspace } from "./components/ChatRoomWorkspace.js";
 import { LoginScreen } from "./components/LoginScreen.js";
 import { MediaMiniPlayer } from "./components/media/MediaMiniPlayer.js";
+import { closeMediaPlayback } from "./lib/mediaPlaybackStore.js";
 import { NoticeStack } from "./components/NoticeStack.js";
 import { RoomInviteModal } from "./components/RoomInviteModal.js";
 import {
@@ -15,6 +16,8 @@ const ControlPanelPage = lazy(() => import("./pages/ControlPanelPage.js"));
 const AgentPortalPage = lazy(() => import("./pages/AgentPortalPage.js"));
 const CarromArenaPage = lazy(() => import("./pages/CarromArenaPage.js"));
 const LudoArenaPage = lazy(() => import("./pages/LudoArenaPage.js"));
+const HostingOwnerPortal = lazy(() => import("./pages/HostingOwnerPortal.js"));
+const InstagramFeedView = lazy(() => import("./components/feed/InstagramFeedView.js"));
 
 const THEME_STORAGE_KEY = "newchat_theme";
 
@@ -90,6 +93,13 @@ export function App() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
+  // The floating player belongs to the logged-in experience only: stop any
+  // running media when the session ends (logout / expired token / kick) so it
+  // never floats over the login screen.
+  useEffect(() => {
+    if (!isAuthenticated) closeMediaPlayback();
+  }, [isAuthenticated]);
+
   // Report page visibility state to real-time socket presence
   useEffect(() => {
     const onVisibility = () => {
@@ -136,10 +146,49 @@ export function App() {
     pathname === "/agent/topup" || pathname === "/agent-topup.html";
   const isCarromRoute = pathname === "/carrom";
   const isLudoRoute = pathname === "/ludo";
+  const isFeedRoute = pathname === "/feed" || pathname === "/feed.html";
+  const isKnownRoute =
+    pathname === "/" ||
+    isCpRoute ||
+    isAgentRoute ||
+    isCarromRoute ||
+    isLudoRoute ||
+    isFeedRoute;
+  const [isHostingPortalRoute, setIsHostingPortalRoute] = useState(false);
+
+  useEffect(() => {
+    if (isKnownRoute) {
+      setIsHostingPortalRoute(false);
+      return;
+    }
+
+    const portalCandidate = pathname.replace(/\/(dashboard|fund|audit)$/, "");
+    const configuredApiUrl = resolveApiBaseUrl();
+    const apiBase =
+      configuredApiUrl ||
+      (window.location.port === "5173"
+        ? `${window.location.protocol}//${window.location.hostname}:3003`
+        : "");
+    let active = true;
+    void fetch(`${apiBase}${portalCandidate}/meta`, { credentials: "omit" })
+      .then((response) => {
+        if (active) setIsHostingPortalRoute(response.ok);
+      })
+      .catch(() => {
+        if (active) setIsHostingPortalRoute(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isKnownRoute, pathname]);
 
   return (
     <div className={dark ? "dark-theme" : "light-theme"}>
-      {isCpRoute ? (
+      {isHostingPortalRoute ? (
+        <Suspense fallback={routeFallback}>
+          <HostingOwnerPortal />
+        </Suspense>
+      ) : isCpRoute ? (
         <Suspense fallback={routeFallback}>
           <ControlPanelPage
             dark={dark}
@@ -171,6 +220,13 @@ export function App() {
             onBackToChat={() => navigate("/")}
           />
         </Suspense>
+      ) : isFeedRoute ? (
+        <Suspense fallback={routeFallback}>
+          <InstagramFeedView
+            dark={dark}
+            onBack={() => navigate("/")}
+          />
+        </Suspense>
       ) : isAuthenticated ? (
         <ChatRoomWorkspace
           dark={dark}
@@ -190,7 +246,7 @@ export function App() {
       <NoticeStack />
 
       {/* Global floating media player — survives panel/tab closes & SPA navigation */}
-      <MediaMiniPlayer dark={dark} />
+      {isAuthenticated && <MediaMiniPlayer dark={dark} />}
     </div>
   );
 }

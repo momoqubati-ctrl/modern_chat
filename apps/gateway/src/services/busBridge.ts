@@ -94,6 +94,13 @@ export class BusBridge {
           this.io.emit("msg", { cmd: "Maxrep", data: ownerState.maxRep });
           this.io.emit("msg", { cmd: "coom", data: ownerState.cooment });
         }
+        if (scopes.has("all") || scopes.has("cuts")) {
+          const rules = this.catalogStore.getShortcutRules();
+          this.io.emit("msg", {
+            cmd: "shortcuts",
+            data: rules.map((r) => ({ text1: r.text1, text2: r.text2 })),
+          });
+        }
         break;
       }
 

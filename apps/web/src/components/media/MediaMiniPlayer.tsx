@@ -5,10 +5,29 @@
  * panel/tab the user closes or navigates to. Supports YouTube (IFrame API,
  * lazy-loaded on first use) and native uploaded videos, and persists the
  * watched position so playback resumes after a full page reload.
+ *
+ * Performance notes (mobile):
+ * - Rendered in a portal on <body> so no ancestor stacking/transform/filter
+ *   can force the browser to re-composite the video surface.
+ * - Positioned with transform only, promoted with `will-change: transform`;
+ *   dragging mutates the transform directly (zero React re-renders) so the
+ *   iframe/video element is never remounted or re-laid out mid-playback.
+ * - Solid surfaces, no backdrop blur, no entry/pulse animations around the
+ *   video surface.
+ * - A single autoplay path (no autoplay + playVideo() race) avoids the
+ *   "plays, stops, starts again" stutter seen on phones.
  */
 
-import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { createPortal } from "react-dom";
+import { GripHorizontal, X } from "lucide-react";
 import {
   clearMediaPosition,
   closeMediaPlayback,
@@ -118,6 +137,8 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
           videoId,
           host: "https://www.youtube-nocookie.com",
           playerVars: {
+            // Single start path: autoplay only. Calling playVideo() in onReady
+            // as well causes a play → buffer → restart stutter on mobile.
             autoplay: 1,
             start: startPos,
             controls: 1,
@@ -126,13 +147,6 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
             origin: window.location.origin,
           },
           events: {
-            onReady: (event) => {
-              try {
-                event.target.playVideo();
-              } catch {
-                // autoplay blocked — native controls remain usable
-              }
-            },
             onStateChange: (event) => {
               // 1=playing 2=paused 0=ended
               if (event.data === 2) {
@@ -155,7 +169,8 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
             }
           };
         }
-        // Lightweight progress persistence — reads once every 5 seconds.
+        // Lightweight progress persistence — reads once every 10 seconds.
+        // Kept infrequent: each read is a cross-frame postMessage round-trip.
         pollTimer = window.setInterval(() => {
           const active = playerRef.current;
           if (!active) return;
@@ -165,7 +180,7 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
           } catch {
             // player torn down mid-tick
           }
-        }, 5000);
+        }, 10000);
       })
       .catch(() => {
         // network failure — nothing to render, widget stays empty
@@ -182,7 +197,7 @@ function YouTubeSurface({ media, timeGetterRef }: { media: MediaRef; timeGetterR
     <div
       ref={hostRef}
       dir="ltr"
-      className="aspect-video w-full overflow-hidden rounded-b-xl bg-black [&_iframe]:h-full [&_iframe]:w-full"
+      className="aspect-video w-full overflow-hidden bg-black [&_iframe]:h-full [&_iframe]:w-full"
     />
   );
 }
@@ -255,14 +270,217 @@ function NativeVideoSurface({ media, timeGetterRef }: { media: MediaRef; timeGet
       controls
       autoPlay
       playsInline
-      className="aspect-video w-full rounded-b-xl bg-black"
+      preload="auto"
+      className="aspect-video w-full bg-black"
     />
   );
 }
 
-export function MediaMiniPlayer({ dark = true }: { dark?: boolean }) {
+// ---------------------------------------------------------------------------
+// Draggable floating shell
+// ---------------------------------------------------------------------------
+
+const POS_STORAGE_KEY = "newchat_media_player_pos_v1";
+const VIEWPORT_MARGIN = 10;
+const DEFAULT_WIDTH = 290;
+const HEADER_HEIGHT = 32;
+
+interface PlayerPos {
+  x: number;
+  y: number;
+}
+
+interface PlayerRatio {
+  rx: number;
+  ry: number;
+}
+
+interface DragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  width: number;
+  height: number;
+  moved: boolean;
+}
+
+function estimatePlayerSize(): { width: number; height: number } {
+  const width = Math.max(180, Math.min(DEFAULT_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2));
+  return { width, height: Math.round((width * 9) / 16) + HEADER_HEIGHT };
+}
+
+function clampToViewport(x: number, y: number, width: number, height: number): PlayerPos {
+  const maxX = Math.max(VIEWPORT_MARGIN, window.innerWidth - width - VIEWPORT_MARGIN);
+  const maxY = Math.max(VIEWPORT_MARGIN, window.innerHeight - height - VIEWPORT_MARGIN);
+  return {
+    x: Math.min(Math.max(VIEWPORT_MARGIN, x), maxX),
+    y: Math.min(Math.max(VIEWPORT_MARGIN, y), maxY),
+  };
+}
+
+/** Position is stored as a ratio of the free space, so it survives rotation. */
+function readStoredRatio(): PlayerRatio | null {
+  try {
+    const raw = window.localStorage.getItem(POS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { rx?: unknown; ry?: unknown };
+    const rx = Number(parsed?.rx);
+    const ry = Number(parsed?.ry);
+    if (!Number.isFinite(rx) || !Number.isFinite(ry)) return null;
+    return { rx: Math.min(Math.max(0, rx), 1), ry: Math.min(Math.max(0, ry), 1) };
+  } catch {
+    return null;
+  }
+}
+
+function storeRatio(ratio: PlayerRatio): void {
+  try {
+    window.localStorage.setItem(
+      POS_STORAGE_KEY,
+      JSON.stringify({ rx: ratio.rx, ry: ratio.ry }),
+    );
+  } catch {
+    // storage disabled — position simply won't persist
+  }
+}
+
+function computeRatio(pos: PlayerPos, width: number, height: number): PlayerRatio {
+  const freeX = Math.max(1, window.innerWidth - width);
+  const freeY = Math.max(1, window.innerHeight - height);
+  return {
+    rx: Math.min(Math.max(0, pos.x / freeX), 1),
+    ry: Math.min(Math.max(0, pos.y / freeY), 1),
+  };
+}
+
+/** A sane viewport: ignore transient 0×0 sizes during capture/resize. */
+function hasUsableViewport(): boolean {
+  return window.innerWidth >= 200 && window.innerHeight >= 150;
+}
+
+function initialPosition(ratio: PlayerRatio): PlayerPos {
+  const { width, height } = estimatePlayerSize();
+  return clampToViewport(
+    ratio.rx * Math.max(0, window.innerWidth - width),
+    ratio.ry * Math.max(0, window.innerHeight - height),
+    width,
+    height,
+  );
+}
+
+export const MediaMiniPlayer = memo(function MediaMiniPlayer({ dark = true }: { dark?: boolean }) {
   const { current, playing, generation } = useMediaPlayback();
   const timeGetterRef = useRef<() => number>(() => 0);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const ratioRef = useRef<PlayerRatio>(readStoredRatio() ?? { rx: 1, ry: 1 });
+  const posRef = useRef<PlayerPos>(initialPosition(ratioRef.current));
+  const dragRef = useRef<DragState | null>(null);
+  const pendingPosRef = useRef<PlayerPos | null>(null);
+
+  const applyPosition = useCallback((pos: PlayerPos) => {
+    const shell = shellRef.current;
+    if (shell) {
+      shell.style.transform = `translate3d(${Math.round(pos.x)}px, ${Math.round(pos.y)}px, 0)`;
+    }
+  }, []);
+
+  /** Re-derive the on-screen position from the saved ratio + real shell size. */
+  const restoreFromRatio = useCallback(() => {
+    if (!hasUsableViewport()) return;
+    const rect = shellRef.current?.getBoundingClientRect();
+    const size =
+      rect && rect.width > 0 && rect.height > 0
+        ? { width: rect.width, height: rect.height }
+        : estimatePlayerSize();
+    const ratio = ratioRef.current;
+    const target = clampToViewport(
+      ratio.rx * Math.max(0, window.innerWidth - size.width),
+      ratio.ry * Math.max(0, window.innerHeight - size.height),
+      size.width,
+      size.height,
+    );
+    posRef.current = target;
+    applyPosition(target);
+  }, [applyPosition]);
+
+  // Keep the widget fully on-screen after opening / rotating / URL-bar resize.
+  useLayoutEffect(() => {
+    if (current) restoreFromRatio();
+  }, [current, generation, restoreFromRatio]);
+
+  useEffect(() => {
+    const onResize = () => restoreFromRatio();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, [restoreFromRatio]);
+
+  const handleHeaderPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("button")) return;
+    const shell = shellRef.current;
+    if (!shell) return;
+    e.preventDefault();
+    const rect = shell.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: posRef.current.x,
+      originY: posRef.current.y,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+    };
+    pendingPosRef.current = null;
+    try {
+      shell.setPointerCapture(e.pointerId);
+    } catch {
+      // pointer capture unsupported — bubbling still works
+    }
+  };
+
+  const handleShellPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    drag.moved = true;
+    // Direct style mutation: no React state, no re-render, iframe untouched.
+    const next = clampToViewport(drag.originX + dx, drag.originY + dy, drag.width, drag.height);
+    pendingPosRef.current = next;
+    posRef.current = next;
+    applyPosition(next);
+  };
+
+  const finishDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    dragRef.current = null;
+    const shell = shellRef.current;
+    if (shell) {
+      try {
+        shell.releasePointerCapture(e.pointerId);
+      } catch {
+        // already released
+      }
+    }
+    if (drag.moved) {
+      const final = pendingPosRef.current ?? posRef.current;
+      posRef.current = final;
+      const ratio = computeRatio(final, drag.width, drag.height);
+      ratioRef.current = ratio;
+      storeRatio(ratio);
+    }
+    pendingPosRef.current = null;
+  };
 
   if (!current || !playing) return null;
 
@@ -276,22 +494,35 @@ export function MediaMiniPlayer({ dark = true }: { dark?: boolean }) {
     closeMediaPlayback();
   };
 
-  return (
+  const shell = (
     <div
+      ref={shellRef}
       dir="rtl"
-      className={`fixed bottom-4 right-4 z-50 w-[290px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border shadow-2xl backdrop-blur-md animate-slide-up ${
-        dark
-          ? "bg-slate-900/95 border-slate-700/80 text-white"
-          : "bg-white/95 border-slate-200 text-slate-900 shadow-slate-300/50"
+      style={{
+        width: `min(${DEFAULT_WIDTH}px, calc(100vw - ${VIEWPORT_MARGIN * 2}px))`,
+        transform: `translate3d(${Math.round(posRef.current.x)}px, ${Math.round(posRef.current.y)}px, 0)`,
+        willChange: "transform",
+      }}
+      onPointerMove={handleShellPointerMove}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+      onLostPointerCapture={finishDrag}
+      className={`fixed left-0 top-0 z-40 overflow-hidden rounded-2xl border shadow-xl ${
+        dark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-300 text-slate-900"
       }`}
     >
       <div
-        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11px] font-bold ${
-          dark ? "border-b border-white/10 bg-white/5" : "border-b border-slate-200 bg-slate-50"
+        onPointerDown={handleHeaderPointerDown}
+        title="اسحب الشريط لنقل المشغل إلى أي مكان في الشاشة"
+        className={`flex touch-none select-none items-center justify-between gap-2 px-2 py-1.5 text-[11px] font-bold ${
+          dark
+            ? "cursor-grab border-b border-white/10 bg-slate-800 active:cursor-grabbing"
+            : "cursor-grab border-b border-slate-200 bg-slate-100 active:cursor-grabbing"
         }`}
       >
-        <span className="flex items-center gap-1.5 truncate">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="flex min-w-0 items-center gap-1.5">
+          <GripHorizontal className={`h-3.5 w-3.5 shrink-0 ${dark ? "text-slate-400" : "text-slate-500"}`} />
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
           <span className={`truncate ${dark ? "text-slate-200" : "text-slate-700"}`}>
             {current.title || "تشغيل الوسائط"}
           </span>
@@ -306,7 +537,7 @@ export function MediaMiniPlayer({ dark = true }: { dark?: boolean }) {
               : "text-slate-500 hover:bg-rose-500/10 hover:text-rose-600"
           }`}
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
       <div key={`${current.key}:${generation}`} className="bg-black">
@@ -318,4 +549,6 @@ export function MediaMiniPlayer({ dark = true }: { dark?: boolean }) {
       </div>
     </div>
   );
-}
+
+  return typeof document === "undefined" ? shell : createPortal(shell, document.body);
+});

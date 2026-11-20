@@ -14,6 +14,7 @@ export default defineConfig({
     "./src/schema/economy.ts",
     "./src/schema/system.ts",
     "./src/schema/idempotency.ts",
+    "./src/schema/feed.ts",
   ],
   out: "./drizzle",
   dialect: "postgresql",

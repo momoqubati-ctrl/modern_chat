@@ -22,6 +22,23 @@ const PRESENCE_USERS_HASH = "newchat:presence:users";
 const PRESENCE_ROOMS_HASH = "newchat:presence:rooms";
 const SESSION_TOKENS_HASH = "newchat:session:tokens";
 
+const ROOM_MEMBERS_PRUNE_INTERVAL_MS = 15_000;
+const ROOM_MEMBERS_PRUNE_CHUNK = 250;
+
+function roomMembersKey(roomId: string): string {
+  return `newchat:room:${roomId}:members`;
+}
+
+function isActiveRoomMember(session: GatewaySession | null | undefined, roomId: string): boolean {
+  return Boolean(
+    session &&
+      session.roomid === roomId &&
+      !session.offline &&
+      Number(session.stat || 0) !== 3 &&
+      !session.stealth,
+  );
+}
+
 export class PresenceDirectory {
   private readonly io: Server;
   private readonly catalogStore: CatalogStore;
@@ -29,7 +46,9 @@ export class PresenceDirectory {
   private readonly socketByLid = new Map<string, string>();
   private readonly socketByUid = new Map<string, Set<string>>();
   private readonly backgroundGraceTimers = new Map<string, NodeJS.Timeout>();
+  private readonly roomMembersPrunedAt = new Map<string, number>();
   private roomCountsBroadcastTimer: NodeJS.Timeout | null = null;
+  private roomMembershipChangedCallback?: (roomId: string) => Promise<void> | void;
 
   constructor(io: Server, catalogStore: CatalogStore) {
     this.io = io;
@@ -190,7 +209,7 @@ export class PresenceDirectory {
         }
       }
       if (session.roomid && !session.offline && Number(session.stat) !== 3 && !session.stealth) {
-        tx.sadd(`newchat:room:${session.roomid}:members`, session.id);
+        tx.sadd(roomMembersKey(session.roomid), session.id);
       }
       if (session.uid) {
         tx.hdel(REDIS_KEYS.presencePinned, session.uid);
@@ -216,16 +235,27 @@ export class PresenceDirectory {
     this.queueRoomCountsBroadcast();
   }
 
-  async reassignSessionSocket(oldSocketId: string, newSocket: Socket): Promise<GatewaySession | null> {
+  async reassignSessionSocket(
+    oldSocketId: string,
+    newSocket: Socket,
+    opts?: { roomId?: string },
+  ): Promise<GatewaySession | null> {
     this.cancelBackgroundGrace(oldSocketId);
     const existing =
       this.localSessions.get(oldSocketId) || (await this.getDistributedSession(oldSocketId));
     if (!existing) return null;
 
+    const requestedRoomId = String(opts?.roomId || "").trim();
+    const existingRoomId = String(existing.roomid || "").trim();
+    const targetRoomId =
+      (requestedRoomId && this.catalogStore.getRoomById(requestedRoomId) ? requestedRoomId : "") ||
+      (existingRoomId && this.catalogStore.getRoomById(existingRoomId) ? existingRoomId : "") ||
+      null;
     await this.removeSession(oldSocketId, { emitLeave: true, keepToken: true });
     const next: GatewaySession = {
       ...existing,
       id: newSocket.id,
+      roomid: targetRoomId,
       offline: false,
       stat: existing.busy ? 2 : 0,
       pageHidden: false,
@@ -261,10 +291,10 @@ export class PresenceDirectory {
         tx.hset(SESSION_TOKENS_HASH, session.token, JSON.stringify(session));
       }
       if (oldRoomId) {
-        tx.srem(`newchat:room:${oldRoomId}:members`, session.id);
+        tx.srem(roomMembersKey(oldRoomId), session.id);
       }
-      if (newRoomId && !session.stealth && !session.offline) {
-        tx.sadd(`newchat:room:${newRoomId}:members`, session.id);
+      if (newRoomId && !session.stealth && !session.offline && Number(session.stat || 0) !== 3) {
+        tx.sadd(roomMembersKey(newRoomId), session.id);
       }
       await tx.exec();
 
@@ -306,6 +336,12 @@ export class PresenceDirectory {
     }
     this.localSessions.set(socketId, updated);
 
+    const prevRoomId = String(current.roomid || "").trim();
+    const nextRoomId = String(updated.roomid || "").trim();
+    const wasMember = isActiveRoomMember(current, prevRoomId);
+    const isMember = isActiveRoomMember(updated, nextRoomId);
+    const membershipChanged = prevRoomId !== nextRoomId || wasMember !== isMember;
+
     try {
       const redis = getRedis();
       const targetHash = updated.islogin === "بوت" ? REDIS_KEYS.presenceVirtual : PRESENCE_USERS_HASH;
@@ -314,9 +350,25 @@ export class PresenceDirectory {
       if (updated.token && updated.islogin !== "بوت") {
         tx.hset(SESSION_TOKENS_HASH, updated.token, JSON.stringify(updated));
       }
+      if (membershipChanged) {
+        if (prevRoomId && (!wasMember || prevRoomId !== nextRoomId)) {
+          tx.srem(roomMembersKey(prevRoomId), socketId);
+        }
+        if (nextRoomId && isMember) {
+          tx.sadd(roomMembersKey(nextRoomId), socketId);
+        }
+      }
       await tx.exec();
     } catch {
       // ignore
+    }
+
+    if (membershipChanged) {
+      const roomsToSync = new Set<string>();
+      if (prevRoomId) roomsToSync.add(prevRoomId);
+      if (nextRoomId) roomsToSync.add(nextRoomId);
+      await Promise.all(Array.from(roomsToSync).map((id) => this.syncRoomCount(id)));
+      this.queueRoomCountsBroadcast();
     }
 
     if (opts?.broadcastUpdate !== false && !updated.stealth) {
@@ -378,7 +430,7 @@ export class PresenceDirectory {
       tx.hdel(PRESENCE_USERS_HASH, socketId);
       tx.hdel(REDIS_KEYS.presenceVirtual, socketId);
       if (removed?.roomid) {
-        tx.srem(`newchat:room:${removed.roomid}:members`, socketId);
+        tx.srem(roomMembersKey(removed.roomid), socketId);
       }
       if (!opts?.keepToken && removed?.token && removed.islogin === "زائر") {
         tx.hdel(SESSION_TOKENS_HASH, removed.token);
@@ -428,17 +480,100 @@ export class PresenceDirectory {
     }
   }
 
+  bindRoomMembershipChanged(cb: (roomId: string) => Promise<void> | void): void {
+    this.roomMembershipChangedCallback = cb;
+  }
+
   async syncRoomCount(roomId: string): Promise<number> {
     if (!roomId) return 0;
+    const count = await this.countOnlineRoomMembers(roomId);
+    try {
+      await getRedis().hset(PRESENCE_ROOMS_HASH, roomId, String(count));
+    } catch {
+      // Local fallback already computed in countOnlineRoomMembers
+    }
+    if (this.roomMembershipChangedCallback) {
+      try {
+        await this.roomMembershipChangedCallback(roomId);
+      } catch {
+        // Non-fatal: listeners count is best-effort
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Removes room-member ids that no longer belong to a live session in this room.
+   * Stale ids accumulate across gateway restarts/reconnects because the presence
+   * hashes are flushed on boot while the per-room membership sets are not.
+   */
+  async pruneStaleRoomMembers(roomId: string, opts?: { force?: boolean }): Promise<void> {
+    const safeRoomId = String(roomId || "").trim();
+    if (!safeRoomId) return;
+
+    const now = Date.now();
+    const lastPrunedAt = this.roomMembersPrunedAt.get(safeRoomId) || 0;
+    if (!opts?.force && now - lastPrunedAt < ROOM_MEMBERS_PRUNE_INTERVAL_MS) return;
+    this.roomMembersPrunedAt.set(safeRoomId, now);
+
     try {
       const redis = getRedis();
-      const count = await redis.scard(`newchat:room:${roomId}:members`);
-      await redis.hset(PRESENCE_ROOMS_HASH, roomId, String(count));
-      return count;
+      const key = roomMembersKey(safeRoomId);
+      const members = await redis.smembers(key);
+      if (members.length === 0) return;
+
+      const stale: string[] = [];
+      for (let i = 0; i < members.length; i += ROOM_MEMBERS_PRUNE_CHUNK) {
+        const chunk = members.slice(i, i + ROOM_MEMBERS_PRUNE_CHUNK);
+        const [realRaw, virtualRaw] = await Promise.all([
+          redis.hmget(PRESENCE_USERS_HASH, ...chunk),
+          redis.hmget(REDIS_KEYS.presenceVirtual, ...chunk),
+        ]);
+        chunk.forEach((id, index) => {
+          const raw = realRaw[index] || virtualRaw[index];
+          const localSession = this.localSessions.get(id);
+          const session = raw ? safeJsonParse<GatewaySession | null>(raw, null) : localSession || null;
+          if (!isActiveRoomMember(session, safeRoomId)) {
+            stale.push(id);
+          }
+        });
+      }
+
+      for (let i = 0; i < stale.length; i += ROOM_MEMBERS_PRUNE_CHUNK) {
+        await redis.srem(key, ...stale.slice(i, i + ROOM_MEMBERS_PRUNE_CHUNK));
+      }
+    } catch {
+      // Non-fatal: keep using SCARD when Redis is unavailable.
+    }
+  }
+
+  async removeRoomPresence(roomId: string): Promise<void> {
+    const safeRoomId = String(roomId || "").trim();
+    if (!safeRoomId) return;
+    this.roomMembersPrunedAt.delete(safeRoomId);
+    try {
+      const redis = getRedis();
+      await redis.del(roomMembersKey(safeRoomId));
+      await redis.hdel(PRESENCE_ROOMS_HASH, safeRoomId);
+    } catch {
+      // Non-fatal
+    }
+    this.queueRoomCountsBroadcast();
+  }
+
+  async countOnlineRoomMembers(roomId: string): Promise<number> {
+    const safeRoomId = String(roomId || "").trim();
+    if (!safeRoomId) return 0;
+
+    await this.pruneStaleRoomMembers(safeRoomId);
+
+    try {
+      const count = await getRedis().scard(roomMembersKey(safeRoomId));
+      return Math.max(0, Number(count) || 0);
     } catch {
       let localCount = 0;
       for (const s of this.localSessions.values()) {
-        if (s.roomid === roomId && !s.stealth && !s.offline) localCount += 1;
+        if (isActiveRoomMember(s, safeRoomId)) localCount += 1;
       }
       return localCount;
     }

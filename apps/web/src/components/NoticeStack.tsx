@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell, Check, CheckCircle2, Gift, Heart, UserCheck, Volume2, VolumeX, X } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
+import { SafeRichText } from "../lib/richContent.js";
 import { isSoundMuted, playSoundCue, setSoundMuted } from "../lib/soundFx.js";
 import { formatTimeArabic } from "../lib/mediaUrl.js";
 
@@ -107,7 +108,9 @@ export function NoticeStack() {
                 {n.topic && (
                   <div className={`text-[11px] font-bold truncate ${visuals.accent}`}>{n.topic}</div>
                 )}
-                <div className="leading-relaxed break-words text-xs sm:text-sm">{n.msg}</div>
+                <div className="leading-relaxed break-words text-xs sm:text-sm">
+                  <SafeRichText text={n.msg} dark={true} />
+                </div>
                 {n.ts > 0 && (
                   <div className="text-[10px] text-slate-400 mt-0.5">{formatTimeArabic(n.ts)}</div>
                 )}

@@ -2,15 +2,13 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   Flame,
   Heart,
-  Link as LinkIcon,
   Loader2,
   MessageCircle,
   Mic,
   Paperclip,
-  Pause,
-  Play,
   Reply,
   Send,
+  Smile,
   Square,
   ThumbsUp,
   Trash2,
@@ -19,7 +17,8 @@ import {
 } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
 import type { BroadcastWallPost } from "@newchat/shared";
-import { adjustColorForTheme, formatTimeArabic } from "../lib/mediaUrl.js";
+import { EMOJI_IMAGE_CLASS, emojiShortcut, applyTextShortcuts } from "../lib/emojiShortcuts.js";
+import { adjustColorForTheme, formatTimeArabic, resolveAssetUrl } from "../lib/mediaUrl.js";
 import {
   explainMediaAccessError,
   isMediaCaptureSupported,
@@ -28,6 +27,8 @@ import {
 import { hasRoleFlag } from "../lib/permissions.js";
 import { detectAttachmentTypeFromPath, extractYoutubeVideoId, SafeRichText } from "../lib/richContent.js";
 import { MemberAvatar } from "./MemberAvatar.js";
+import { VoiceNotePlayer } from "./media/VoiceNotePlayer.js";
+import { VoiceRecordingBar } from "./media/VoiceRecordingBar.js";
 import { VerifiedBadge, isUserVerified } from "./VerifiedBadge.js";
 
 interface WallPanelProps {
@@ -54,25 +55,28 @@ export function WallPanel({ dark }: WallPanelProps) {
   const pushNotice = useChatStore((s) => s.pushNotice);
   const youtubeResults = useChatStore((s) => s.youtubeResults);
   const searchYoutube = useChatStore((s) => s.searchYoutube);
+  const emos = useChatStore((s) => s.emos);
+  const shortcuts = useChatStore((s) => s.shortcuts);
 
   const [draft, setDraft] = useState("");
+  const postInputRef = useRef<HTMLInputElement | null>(null);
+  const [commentPickerBid, setCommentPickerBid] = useState<string | null>(null);
   const [linkInput, setLinkInput] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [isCardMode, setIsCardMode] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Wall Voice Recording & Preview State
   const [wallRecording, setWallRecording] = useState(false);
   const [wallRecordingSec, setWallRecordingSec] = useState(0);
   const [wallVoicePreview, setWallVoicePreview] = useState<WallVoicePreview | null>(null);
-  const [wallVoicePlaying, setWallVoicePlaying] = useState(false);
-  const [wallVoiceCurrentTime, setWallVoiceCurrentTime] = useState(0);
 
   const wallMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const wallRecordedChunksRef = useRef<BlobPart[]>([]);
   const wallRecordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wallRecordingSecRef = useRef(0);
-  const wallAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const cancelRecordingRef = useRef(false);
 
   const [ytModalOpen, setYtModalOpen] = useState(false);
   const [ytQuery, setYtQuery] = useState("");
@@ -117,6 +121,7 @@ export function WallPanel({ dark }: WallPanelProps) {
       const stream = await requestUserMediaWithFallback({ audio: true, video: false });
       const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
       const recorder = new MediaRecorder(stream, { mimeType: mime });
+      cancelRecordingRef.current = false;
       wallRecordedChunksRef.current = [];
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) wallRecordedChunksRef.current.push(ev.data);
@@ -124,6 +129,11 @@ export function WallPanel({ dark }: WallPanelProps) {
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         stopWallRecordingTimer();
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false;
+          setWallRecordingSec(0);
+          return;
+        }
         const blob = new Blob(wallRecordedChunksRef.current, { type: mime });
         if (blob.size < 400) return;
         const previewUrl = URL.createObjectURL(blob);
@@ -144,27 +154,45 @@ export function WallPanel({ dark }: WallPanelProps) {
     }
   };
 
+  const handleCancelWallRecording = () => {
+    cancelRecordingRef.current = true;
+    wallMediaRecorderRef.current?.stop();
+    stopWallRecordingTimer();
+    setWallRecording(false);
+    setWallRecordingSec(0);
+    wallRecordingSecRef.current = 0;
+  };
+
   const handleDiscardWallVoice = () => {
-    if (wallAudioPlayerRef.current) {
-      wallAudioPlayerRef.current.pause();
-      wallAudioPlayerRef.current.currentTime = 0;
-    }
     if (wallVoicePreview?.previewUrl) {
       URL.revokeObjectURL(wallVoicePreview.previewUrl);
     }
     setWallVoicePreview(null);
-    setWallVoicePlaying(false);
-    setWallVoiceCurrentTime(0);
   };
 
-  const handleTogglePlayWallVoice = () => {
-    if (!wallAudioPlayerRef.current) return;
-    if (wallVoicePlaying) {
-      wallAudioPlayerRef.current.pause();
-      setWallVoicePlaying(false);
+  const insertPostToken = (token: string, keepPickerOpen = false) => {
+    const input = postInputRef.current;
+    if (input && typeof input.selectionStart === "number" && typeof input.selectionEnd === "number") {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const before = draft.slice(0, start);
+      const after = draft.slice(end);
+      const needLead = before.length > 0 && !before.endsWith(" ");
+      const needTrail = after.length === 0 || !after.startsWith(" ");
+      const insert = `${needLead ? " " : ""}${token}${needTrail ? " " : ""}`;
+      const nextVal = `${before}${insert}${after}`;
+      setDraft(nextVal);
+      requestAnimationFrame(() => {
+        input.focus();
+        const pos = start + insert.length;
+        input.setSelectionRange(pos, pos);
+      });
     } else {
-      void wallAudioPlayerRef.current.play().catch(() => undefined);
-      setWallVoicePlaying(true);
+      setDraft((prev) => (prev ? `${prev.trimEnd()} ${token} ` : `${token} `));
+      postInputRef.current?.focus();
+    }
+    if (!keepPickerOpen) {
+      setPickerOpen(false);
     }
   };
 
@@ -192,7 +220,8 @@ export function WallPanel({ dark }: WallPanelProps) {
       }
     }
 
-    sendWallPost(draft, {
+    const expanded = applyTextShortcuts(draft.trim(), shortcuts);
+    sendWallPost(expanded, {
       link: effectiveLink,
       card: isCardMode || Boolean(effectiveLink),
     });
@@ -200,6 +229,7 @@ export function WallPanel({ dark }: WallPanelProps) {
     setDraft("");
     setLinkInput("");
     setShowLinkInput(false);
+    setPickerOpen(false);
     handleDiscardWallVoice();
     if (wallVoicePreview) {
       pushNotice("تم نشر التسجيل الصوتي على الحائط بنجاح");
@@ -261,13 +291,22 @@ export function WallPanel({ dark }: WallPanelProps) {
     }
   };
 
+  const handleSendWallSticker = (link: string) => {
+    const caption = draft.trim();
+    sendWallPost(caption, { link, card: true });
+    if (caption) setDraft("");
+    setPickerOpen(false);
+  };
+
   const handleSendComment = (bid: string) => {
-    const text = (commentDrafts[bid] || "").trim();
-    if (!text) return;
+    const rawText = (commentDrafts[bid] || "").trim();
+    if (!rawText) return;
+    const expanded = applyTextShortcuts(rawText, shortcuts);
     const replyTo = replyTargets[bid];
-    commentWallPost(bid, text, replyTo?.cid);
+    commentWallPost(bid, expanded, replyTo?.cid);
     setCommentDrafts((prev) => ({ ...prev, [bid]: "" }));
     setReplyTargets((prev) => ({ ...prev, [bid]: null }));
+    setCommentPickerBid(null);
   };
 
   const renderLikesInfo = (p: BroadcastWallPost) => {
@@ -294,6 +333,7 @@ export function WallPanel({ dark }: WallPanelProps) {
       <form onSubmit={handlePublish} className="p-3 border-b border-slate-800/30 space-y-2 shrink-0">
         <div className="flex gap-2">
           <input
+            ref={postInputRef}
             type="text"
             dir="rtl"
             value={draft}
@@ -327,124 +367,79 @@ export function WallPanel({ dark }: WallPanelProps) {
 
         {/* Live Recording Indicator Banner */}
         {wallRecording && (
-          <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-between text-xs font-bold text-rose-500 animate-pulse">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <span>جارٍ تسجيل صوتي للحائط...</span>
-            </div>
-            <div className="dir-ltr font-mono font-bold">
-              {Math.floor(wallRecordingSec / 60)}:{(wallRecordingSec % 60).toString().padStart(2, "0")}
-            </div>
-          </div>
+          <VoiceRecordingBar
+            dark={dark}
+            seconds={wallRecordingSec}
+            label="جارٍ تسجيل صوتي للحائط..."
+            onCancel={handleCancelWallRecording}
+            onStop={() => void toggleWallRecording()}
+          />
         )}
 
         {/* Audio Preview Before Publishing to Wall */}
         {wallVoicePreview && (
           <div
-            className={`p-3 rounded-xl border flex flex-col gap-2 ${
+            className={`p-3 rounded-2xl border flex flex-col gap-2.5 ${
               dark ? "bg-slate-950/80 border-slate-800" : "bg-slate-50 border-slate-200"
             }`}
           >
             <div className="flex items-center justify-between text-xs font-bold">
               <span className="flex items-center gap-1.5 text-rose-500">
                 <Mic className="w-4 h-4" />
-                معاينة التسجيل الصوتي قبل النشر على الحائط
+                معاينة التسجيل قبل النشر على الحائط
               </span>
-              <span className="text-[10px] text-slate-400 font-mono">
-                {Math.floor(wallVoiceCurrentTime / 60)}:{(Math.floor(wallVoiceCurrentTime) % 60).toString().padStart(2, "0")} / {Math.floor(wallVoicePreview.durationSec / 60)}:{(wallVoicePreview.durationSec % 60).toString().padStart(2, "0")}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={handleTogglePlayWallVoice}
-                className="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-xs transition"
-                title={wallVoicePlaying ? "إيقاف مؤقت" : "استماع للتسجيل"}
-              >
-                {wallVoicePlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-              </button>
-
-              {/* Audio Progress Bar */}
-              <div className="flex-1 h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-rose-500 transition-all duration-100"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (wallVoiceCurrentTime / Math.max(1, wallVoicePreview.durationSec)) * 100,
-                    )}%`,
-                  }}
-                />
-              </div>
-
               <button
                 type="button"
                 onClick={handleDiscardWallVoice}
-                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 transition"
-                title="حذف التسجيل"
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold transition ${
+                  dark
+                    ? "text-slate-400 hover:bg-rose-500/10 hover:text-rose-400"
+                    : "text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                }`}
+                title="حذف التسجيل وإعادة التسجيل"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>حذف</span>
               </button>
             </div>
 
-            <audio
-              ref={wallAudioPlayerRef}
+            <VoiceNotePlayer
               src={wallVoicePreview.previewUrl}
-              onTimeUpdate={(e) => setWallVoiceCurrentTime(e.currentTarget.currentTime)}
-              onEnded={() => {
-                setWallVoicePlaying(false);
-                setWallVoiceCurrentTime(0);
-              }}
-              className="hidden"
+              dark={dark}
+              durationSec={wallVoicePreview.durationSec}
+              className="w-full"
             />
           </div>
         )}
 
         <div className="flex items-center justify-between gap-2 text-[11px]">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* YouTube button - matching the room chat composer button */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Emoji / stickers button (same as room composer) */}
             <button
               type="button"
-              onClick={() => setYtModalOpen(true)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition ${
-                dark
-                  ? "bg-rose-500/15 border-rose-500/30 text-rose-400 hover:bg-rose-500/25"
-                  : "bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100"
-              }`}
-              title="بحث وإرسال مقطع يوتيوب على الحائط"
-            >
-              <Youtube className="w-3.5 h-3.5 text-rose-500" />
-              <span>يوتيوب</span>
-            </button>
-
-            {/* Voice recording button */}
-            <button
-              type="button"
-              onClick={() => void toggleWallRecording()}
-              title={wallRecording ? "إيقاف ومعاينة التسجيل الصوتي" : "تسجيل بصمة صوتية للحائط"}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
-                wallRecording
-                  ? "bg-rose-600 border-rose-500 text-white animate-pulse"
+              onClick={() => setPickerOpen((o) => !o)}
+              title="الفيسات (سمايلات)"
+              className={`p-2 rounded-xl border transition ${
+                pickerOpen
+                  ? "bg-sky-600 border-sky-500 text-white"
                   : dark
-                    ? "bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 text-slate-200"
-                    : "bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700"
+                    ? "border-slate-800 hover:bg-slate-800 text-slate-300"
+                    : "border-slate-200 hover:bg-slate-100 text-slate-600"
               }`}
             >
-              {wallRecording ? <Square className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5 text-rose-500" />}
-              <span>{wallRecording ? `إيقاف (${wallRecordingSec}ث)` : "تسجيل"}</span>
+              <Smile className="w-4 h-4" />
             </button>
 
             {/* Attachment upload */}
             <label
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition ${
+              title={uploading ? "جارٍ رفع الملف..." : "إرسال صورة / ملف / فيديو"}
+              className={`p-2 rounded-xl border cursor-pointer transition ${
                 dark
-                  ? "bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 text-slate-200"
-                  : "bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700"
+                  ? "border-slate-800 hover:bg-slate-800 text-slate-300"
+                  : "border-slate-200 hover:bg-slate-100 text-slate-600"
               }`}
             >
-              <Paperclip className="w-3.5 h-3.5 text-sky-500" />
-              <span>{uploading ? "رفع..." : "مرفق"}</span>
+              <Paperclip className="w-4 h-4" />
               <input
                 type="file"
                 accept="image/*,audio/*,video/*"
@@ -453,22 +448,38 @@ export function WallPanel({ dark }: WallPanelProps) {
               />
             </label>
 
-            {/* Direct link toggle */}
+            {/* Voice recording button */}
             <button
               type="button"
-              onClick={() => setShowLinkInput((v) => !v)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
-                showLinkInput
-                  ? dark
-                    ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
-                    : "bg-emerald-100 border-emerald-300 text-emerald-800"
+              onClick={() => void toggleWallRecording()}
+              title={wallRecording ? "إيقاف ومعاينة التسجيل الصوتي" : "تسجيل بصمة صوتية للحائط"}
+              className={`p-2 rounded-xl border transition ${
+                wallRecording
+                  ? "bg-rose-600 border-rose-500 text-white animate-pulse"
                   : dark
-                    ? "bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 text-slate-200"
-                    : "bg-slate-100 border-slate-200 hover:bg-slate-200 text-slate-700"
+                    ? "border-slate-800 hover:bg-slate-800 text-rose-400"
+                    : "border-slate-200 hover:bg-slate-100 text-rose-600"
               }`}
             >
-              <LinkIcon className="w-3.5 h-3.5 text-emerald-500" />
-              <span>رابط</span>
+              {wallRecording ? (
+                <Square className="w-4 h-4 fill-current" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* YouTube button */}
+            <button
+              type="button"
+              onClick={() => setYtModalOpen(true)}
+              title="بحث وإرسال مقطع يوتيوب على الحائط"
+              className={`p-2 rounded-xl border transition ${
+                dark
+                  ? "border-slate-800 hover:bg-slate-800 text-rose-400"
+                  : "border-slate-200 hover:bg-slate-100 text-rose-600"
+              }`}
+            >
+              <Youtube className="w-4 h-4" />
             </button>
           </div>
 
@@ -484,6 +495,52 @@ export function WallPanel({ dark }: WallPanelProps) {
             <span>بطاقة غنية</span>
           </label>
         </div>
+
+        {/* Smiley Picker */}
+        {pickerOpen && (
+          <div
+            className={`rounded-2xl border shadow-xl overflow-hidden ${
+              dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div
+              className={`flex items-center justify-between px-3 py-2 border-b ${
+                dark ? "border-slate-800" : "border-slate-200"
+              }`}
+            >
+              <span className="px-2 py-1 rounded-lg text-[11px] font-bold bg-sky-600 text-white">
+                سمايلات ({emos.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className={`transition ${dark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"}`}
+                title="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2.5 max-h-52 overflow-y-auto chat-scroll grid grid-cols-5 gap-1.5">
+              {emos.map((file, index) => (
+                <button
+                  key={file}
+                  type="button"
+                  onClick={() => insertPostToken(emojiShortcut(index), true)}
+                  title={emojiShortcut(index)}
+                  className={`p-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${
+                    dark ? "hover:bg-slate-800" : "hover:bg-slate-100"
+                  }`}
+                >
+                  <img src={resolveAssetUrl(file, "emo", "")} alt="" className={EMOJI_IMAGE_CLASS} />
+                  <span className="text-[9px] font-bold opacity-70" dir="rtl">
+                    {emojiShortcut(index)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {showLinkInput && (
           <input
@@ -531,9 +588,14 @@ export function WallPanel({ dark }: WallPanelProps) {
                   <span className="truncate font-semibold text-[11px]">معاينة الفيديو المرفق</span>
                 </div>
               ) : detectAttachmentTypeFromPath(linkInput) === "audio" ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <audio src={linkInput} controls className="h-8 max-w-[200px]" />
-                  <span className="truncate font-semibold text-[11px]">معاينة الصوت المرفق</span>
+                <div className="flex items-center gap-2 min-w-0 w-full">
+                  <VoiceNotePlayer
+                    src={linkInput}
+                    dark={dark}
+                    compact
+                    className="w-full max-w-[320px]"
+                  />
+                  <span className="truncate font-semibold text-[11px] shrink-0">صوت مرفق</span>
                 </div>
               ) : (
                 <span className="truncate font-medium text-[11px]">معاينة الرابط المرفق: {linkInput}</span>
@@ -781,10 +843,8 @@ export function WallPanel({ dark }: WallPanelProps) {
                                   </button>
                                 </div>
                               </div>
-                              <div dir="rtl" className={`mt-0.5 break-words font-medium text-right leading-relaxed ${
-                                dark ? "text-slate-200" : "text-slate-800"
-                              }`}>
-                                {String(c.msg || "")}
+                              <div dir="rtl" className="mt-0.5 break-words font-medium text-right leading-relaxed">
+                                <SafeRichText text={c.msg} dark={dark} />
                               </div>
                             </div>
                           </div>
@@ -810,7 +870,21 @@ export function WallPanel({ dark }: WallPanelProps) {
                       </div>
                     )}
 
-                    <div dir="rtl" className="flex gap-1.5">
+                    <div dir="rtl" className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCommentPickerBid((cur) => (cur === p.bid ? null : p.bid))}
+                        title="الفيسات (سمايلات)"
+                        className={`p-1.5 rounded-xl border transition shrink-0 ${
+                          commentPickerBid === p.bid
+                            ? "bg-sky-600 border-sky-500 text-white"
+                            : dark
+                              ? "border-slate-800 hover:bg-slate-800 text-slate-300"
+                              : "border-slate-200 hover:bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        <Smile className="w-4 h-4" />
+                      </button>
                       <input
                         type="text"
                         dir="rtl"
@@ -834,11 +908,43 @@ export function WallPanel({ dark }: WallPanelProps) {
                       <button
                         type="button"
                         onClick={() => handleSendComment(p.bid)}
-                        className="px-2.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition"
+                        className="px-2.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition shrink-0"
                       >
                         تعليق
                       </button>
                     </div>
+
+                    {commentPickerBid === p.bid && (
+                      <div
+                        className={`p-2 rounded-xl border max-h-40 overflow-y-auto chat-scroll grid grid-cols-5 gap-1 ${
+                          dark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
+                        }`}
+                      >
+                        {emos.map((file, index) => (
+                          <button
+                            key={file}
+                            type="button"
+                            onClick={() => {
+                              const token = emojiShortcut(index);
+                              setCommentDrafts((prev) => {
+                                const cur = prev[p.bid] || "";
+                                const needSpace = cur.length > 0 && !cur.endsWith(" ");
+                                return { ...prev, [p.bid]: `${cur}${needSpace ? " " : ""}${token} ` };
+                              });
+                            }}
+                            title={emojiShortcut(index)}
+                            className={`p-1 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${
+                              dark ? "hover:bg-slate-800" : "hover:bg-slate-100"
+                            }`}
+                          >
+                            <img src={resolveAssetUrl(file, "emo", "")} alt="" className={EMOJI_IMAGE_CLASS} />
+                            <span className="text-[8px] font-bold opacity-70" dir="rtl">
+                              {emojiShortcut(index)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </article>

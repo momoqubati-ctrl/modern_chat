@@ -830,10 +830,18 @@ export function createMessagingHandlers(ctx: GatewayContext) {
 
       let mime = String(d.mime || "audio/webm").toLowerCase().split(";")[0]!.trim();
       let base64Body = rawAudio;
-      const dataUrlMatch = rawAudio.match(/^data:([^;,]+);base64,(.+)$/is);
+      // Data URLs may include codec parameters, e.g.
+      // data:audio/webm;codecs=opus;base64,...
+      const dataUrlMatch = rawAudio.match(/^data:([^,]+);base64,([\s\S]+)$/i);
       if (dataUrlMatch?.[1] && dataUrlMatch[2]) {
-        mime = dataUrlMatch[1].toLowerCase().trim();
+        const mimeFromDataUrl = dataUrlMatch[1].split(";")[0]?.trim().toLowerCase();
+        if (mimeFromDataUrl) mime = mimeFromDataUrl;
         base64Body = dataUrlMatch[2];
+      }
+      base64Body = base64Body.replace(/\s+/g, "");
+      if (!base64Body || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64Body)) {
+        emitNotice(socket, "تعذر قراءة التسجيل الصوتي، يرجى إعادة التسجيل");
+        return;
       }
 
       const ext = VOICE_MIME_TO_EXT[mime];
@@ -843,7 +851,11 @@ export function createMessagingHandlers(ctx: GatewayContext) {
       }
 
       const buffer = Buffer.from(base64Body, "base64");
-      if (buffer.length === 0 || buffer.length > gatewayConfig.maxVoiceBytes) {
+      if (buffer.length < 256) {
+        emitNotice(socket, "التسجيل الصوتي قصير جداً أو غير صالح، يرجى إعادة التسجيل");
+        return;
+      }
+      if (buffer.length > gatewayConfig.maxVoiceBytes) {
         emitNotice(socket, "حجم التسجيل الصوتي يتجاوز الحد المسموح (3 ميجابايت)");
         return;
       }

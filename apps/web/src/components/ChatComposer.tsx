@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
 import type { RoomMessagePayload } from "@newchat/shared";
+import { EMOJI_IMAGE_CLASS, emojiShortcut, applyTextShortcuts } from "../lib/emojiShortcuts.js";
 import { resolveAssetUrl } from "../lib/mediaUrl.js";
 import {
   explainMediaAccessError,
@@ -27,6 +28,8 @@ import {
 } from "../lib/mediaPermissions.js";
 import { canUseCompetitionBots, hasRoleFlag } from "../lib/permissions.js";
 import { detectAttachmentTypeFromPath } from "../lib/richContent.js";
+import { VoiceNotePlayer } from "./media/VoiceNotePlayer.js";
+import { VoiceRecordingBar } from "./media/VoiceRecordingBar.js";
 import { VerifiedBadge, isUserVerified } from "./VerifiedBadge.js";
 
 interface PendingMedia {
@@ -67,8 +70,6 @@ export function ChatComposer({
   const myPowerRole = useChatStore((s) => s.myPowerRole);
   const shortcuts = useChatStore((s) => s.shortcuts);
   const emos = useChatStore((s) => s.emos);
-  const sicos = useChatStore((s) => s.sicos);
-  const dro3 = useChatStore((s) => s.dro3);
   const youtubeResults = useChatStore((s) => s.youtubeResults);
   const lastTikTokResult = useChatStore((s) => s.lastTikTokResult);
 
@@ -87,7 +88,6 @@ export function ChatComposer({
   const [recordingSec, setRecordingSec] = useState(0);
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerTab, setPickerTab] = useState<"emo" | "sico" | "dro3">("emo");
 
   const [ytModalOpen, setYtModalOpen] = useState(false);
   const [ytQuery, setYtQuery] = useState("");
@@ -108,6 +108,7 @@ export function ChatComposer({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingSecRef = useRef(0);
+  const cancelRecordingRef = useRef(false);
   const chunksRef = useRef<BlobPart[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -150,19 +151,20 @@ export function ChatComposer({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!draft.trim()) return;
-    sendRoomMessage(
-      draft,
-      replyTo
-        ? {
-            reply: {
-              id: replyTo.id || "",
-              mi: replyTo.mi || "",
-              topic: replyTo.topic || "",
-              msg: (replyTo.msg || "").slice(0, 140),
-            },
-          }
-        : undefined,
-    );
+
+    const reply = replyTo
+      ? {
+          reply: {
+            id: replyTo.id || "",
+            mi: replyTo.mi || "",
+            topic: replyTo.topic || "",
+            msg: (replyTo.msg || "").slice(0, 140),
+          },
+        }
+      : undefined;
+
+    const expanded = applyTextShortcuts(draft.trim(), shortcuts);
+    sendRoomMessage(expanded, reply);
     setDraft("");
     sendTyping(false);
     onClearReply();
@@ -229,6 +231,7 @@ export function ChatComposer({
     try {
       const stream = await requestUserMediaWithFallback({ audio: true, video: false });
       const rec = new MediaRecorder(stream);
+      cancelRecordingRef.current = false;
       chunksRef.current = [];
       rec.ondataavailable = (ev) => {
         if (ev.data.size > 0) chunksRef.current.push(ev.data);
@@ -236,7 +239,14 @@ export function ChatComposer({
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         stopComposerRecordingTimer();
-        const mime = rec.mimeType || "audio/webm";
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false;
+          setRecordingSec(0);
+          return;
+        }
+        // Chrome reports e.g. "audio/webm;codecs=opus"; keep a clean mime
+        // so the data URL and the stored file use a known extension.
+        const mime = (rec.mimeType || "audio/webm").split(";")[0]?.trim() || "audio/webm";
         const blob = new Blob(chunksRef.current, { type: mime });
         if (blob.size < 400) return;
         const previewUrl = URL.createObjectURL(blob);
@@ -265,6 +275,15 @@ export function ChatComposer({
       stopComposerRecordingTimer();
       pushNotice(explainMediaAccessError(err, "mic"), { force: 1 });
     }
+  };
+
+  const handleCancelRecording = () => {
+    cancelRecordingRef.current = true;
+    mediaRecorderRef.current?.stop();
+    stopComposerRecordingTimer();
+    setRecording(false);
+    setRecordingSec(0);
+    recordingSecRef.current = 0;
   };
 
   const handleCancelPendingMedia = () => {
@@ -326,9 +345,30 @@ export function ChatComposer({
     }
   };
 
-  const insertToken = (token: string) => {
-    setDraft((prev) => (prev ? `${prev} ${token}` : token));
-    setPickerOpen(false);
+  const insertToken = (token: string, keepPickerOpen = false) => {
+    const input = inputRef.current;
+    if (input && typeof input.selectionStart === "number" && typeof input.selectionEnd === "number") {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const before = draft.slice(0, start);
+      const after = draft.slice(end);
+      const needLead = before.length > 0 && !before.endsWith(" ");
+      const needTrail = after.length === 0 || !after.startsWith(" ");
+      const insert = `${needLead ? " " : ""}${token}${needTrail ? " " : ""}`;
+      const nextVal = `${before}${insert}${after}`;
+      setDraft(nextVal);
+      requestAnimationFrame(() => {
+        input.focus();
+        const pos = start + insert.length;
+        input.setSelectionRange(pos, pos);
+      });
+    } else {
+      setDraft((prev) => (prev ? `${prev.trimEnd()} ${token} ` : `${token} `));
+      inputRef.current?.focus();
+    }
+    if (!keepPickerOpen) {
+      setPickerOpen(false);
+    }
   };
 
   const handleYoutubeSearch = (e: FormEvent) => {
@@ -396,7 +436,7 @@ export function ChatComposer({
         </div>
       )}
 
-      {/* Emoji / Sico / Dro3 Picker Popover */}
+      {/* Smiley Picker Popover */}
       {pickerOpen && (
         <div
           className={`absolute bottom-full right-3 mb-2 z-30 w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border shadow-2xl overflow-hidden ${
@@ -404,88 +444,47 @@ export function ChatComposer({
           }`}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/40">
-            <div className="flex items-center gap-1">
-              {[
-                { id: "emo", label: `سمايلات (${emos.length})` },
-                { id: "sico", label: `رموز (${sicos.length})` },
-                { id: "dro3", label: `شعارات (${dro3.length})` },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setPickerTab(t.id as "emo" | "sico" | "dro3")}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
-                    pickerTab === t.id ? "bg-sky-600 text-white" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <span className="px-2 py-1 rounded-lg text-[11px] font-bold bg-sky-600 text-white">
+              سمايلات ({emos.length})
+            </span>
             <button type="button" onClick={() => setPickerOpen(false)} className="text-slate-400 hover:text-white">
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="p-2.5 max-h-52 overflow-y-auto chat-scroll grid grid-cols-6 gap-1.5">
-            {pickerTab === "emo" &&
-              emos.map((file) => (
-                <button
-                  key={file}
-                  type="button"
-                  onClick={() => {
-                    sendRoomMessage("", { file: `/emo/${file}`, fileType: "image" });
-                    setPickerOpen(false);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-                >
-                  <img src={resolveAssetUrl(file, "emo", "")} alt="" className="w-7 h-7 object-contain" />
-                </button>
-              ))}
-
-            {pickerTab === "sico" &&
-              sicos.map((file) => (
-                <button
-                  key={file}
-                  type="button"
-                  onClick={() => {
-                    sendRoomMessage("", { file: `/sico/${file}`, fileType: "image" });
-                    setPickerOpen(false);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-                >
-                  <img src={resolveAssetUrl(file, "sico", "")} alt="" className="w-7 h-7 object-contain" />
-                </button>
-              ))}
-
-            {pickerTab === "dro3" &&
-              dro3.map((file) => (
-                <button
-                  key={file}
-                  type="button"
-                  onClick={() => {
-                    sendRoomMessage("", { file: `/dro3/${file}`, fileType: "image" });
-                    setPickerOpen(false);
-                  }}
-                  className="p-1.5 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-                >
-                  <img src={resolveAssetUrl(file, "dro3", "")} alt="" className="w-7 h-7 object-contain" />
-                </button>
-              ))}
+          <div className="p-2.5 max-h-52 overflow-y-auto chat-scroll grid grid-cols-5 gap-1.5">
+            {emos.map((file, index) => (
+              <button
+                key={file}
+                type="button"
+                onClick={() => {
+                  insertToken(emojiShortcut(index), true);
+                }}
+                title={emojiShortcut(index)}
+                className={`p-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${
+                  dark ? "hover:bg-slate-800" : "hover:bg-slate-100"
+                }`}
+              >
+                <img src={resolveAssetUrl(file, "emo", "")} alt="" className={EMOJI_IMAGE_CLASS} />
+                <span className="text-[9px] font-bold opacity-70" dir="rtl">
+                  {emojiShortcut(index)}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
       {/* Live Voice Recording Bar for Room */}
       {recording && (
-        <div className="px-3.5 py-1.5 bg-rose-500/15 border-t border-rose-500/30 flex items-center justify-between text-xs font-bold text-rose-500 animate-pulse shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-            <span>جارٍ تسجيل رسالة صوتية للغرفة...</span>
-          </div>
-          <div className="dir-ltr font-mono font-bold">
-            {Math.floor(recordingSec / 60)}:{(recordingSec % 60).toString().padStart(2, "0")}
-          </div>
+        <div className="px-2.5 pt-2.5">
+          <VoiceRecordingBar
+            dark={dark}
+            seconds={recordingSec}
+            label="جارٍ تسجيل رسالة للغرفة..."
+            onCancel={handleCancelRecording}
+            onStop={() => void toggleRecording()}
+          />
         </div>
       )}
 
@@ -496,7 +495,7 @@ export function ChatComposer({
           <button
             type="button"
             onClick={() => setPickerOpen((o) => !o)}
-            title="الرموز والملصقات"
+            title="الفيسات (سمايلات)"
             className={`p-2 rounded-xl border transition ${
               pickerOpen
                 ? "bg-sky-600 border-sky-500 text-white"
@@ -534,15 +533,12 @@ export function ChatComposer({
               recording
                 ? "bg-rose-600 border-rose-500 text-white animate-pulse"
                 : dark
-                  ? "border-slate-800 hover:bg-slate-800 text-slate-300"
-                  : "border-slate-200 hover:bg-slate-100 text-slate-600"
+                  ? "border-slate-800 hover:bg-slate-800 text-rose-400"
+                  : "border-slate-200 hover:bg-slate-100 text-rose-600"
             }`}
           >
             {recording ? (
-              <span className="flex items-center gap-1 text-[11px] font-bold">
-                <Square className="w-4 h-4" />
-                <span>{recordingSec}ث</span>
-              </span>
+              <Square className="w-4 h-4 fill-current" />
             ) : (
               <Mic className="w-4 h-4" />
             )}
@@ -972,10 +968,10 @@ export function ChatComposer({
                       استمع إلى التسجيل للتأكد من وضوح الصوت قبل مشاركته في الغرفة
                     </div>
                   </div>
-                  <audio
+                  <VoiceNotePlayer
                     src={pendingMedia.previewUrl}
-                    controls
-                    className="w-full max-w-sm mt-1"
+                    dark={dark}
+                    className="mt-1 w-full max-w-[460px]"
                   />
                 </div>
               )}

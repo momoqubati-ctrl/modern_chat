@@ -41,6 +41,7 @@ async function cleanupEmptyTemporaryRoom(
   }
   ctx.catalogStore.removeRoomLocal(targetId);
   await ctx.micStageManager.clearRoomLikes(targetId);
+  await ctx.presenceDirectory.removeRoomPresence(targetId);
   ctx.io.emit("msg", { cmd: "r-", data: targetId });
 }
 
@@ -659,8 +660,8 @@ export function createRoomHandlers(ctx: GatewayContext) {
         const sess = ctx.presenceDirectory.getLocalSession(member.id);
         if (s && sess) {
           await ctx.micStageManager.clearUserFromStage(roomId, member.id);
+          await ctx.presenceDirectory.moveUserToRoom(s, sess, defaultRoomId);
           if (member.id !== socket.id) {
-            await ctx.presenceDirectory.moveUserToRoom(s, sess, defaultRoomId);
             s.emit("msg", { cmd: "lavedon", data: { roomId } });
           }
         }
@@ -669,6 +670,7 @@ export function createRoomHandlers(ctx: GatewayContext) {
       const { db } = getDb();
       await db.delete(rooms).where(eq(rooms.id, roomId));
       ctx.catalogStore.removeRoomLocal(roomId);
+      await ctx.presenceDirectory.removeRoomPresence(roomId);
 
       await ctx.securityGuard.recordModerationStat({
         state: "حذف غرفه",

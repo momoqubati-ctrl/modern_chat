@@ -314,9 +314,10 @@ export function createNotesHandlers(ctx: GatewayContext) {
 
       const d = rawData as Record<string, unknown>;
       const noteNid = String(d?.noteNid || d?.nid || "").trim();
-      const body = sanitizeHtmlText(String(d?.body || d?.comment || "").trim()).slice(0, 500);
-      const parentCid = sanitizeHtmlText(String(d?.parentCid || d?.parent_cid || "").trim()).slice(0, 64);
-      const replyToTopic = sanitizeHtmlText(String(d?.replyToTopic || d?.reply_to_topic || "").trim()).slice(0, 255);
+      const rawBody = sanitizeHtmlText(String(d?.body || d?.comment || "").trim()).slice(0, 500);
+      const body = ctx.catalogStore.replaceShortcuts(rawBody);
+      let parentCid = sanitizeHtmlText(String(d?.parentCid || d?.parent_cid || "").trim()).slice(0, 64);
+      let replyToTopic = sanitizeHtmlText(String(d?.replyToTopic || d?.reply_to_topic || "").trim()).slice(0, 255);
 
       if (!noteNid || !body) {
         emitNotice(socket, "يرجى كتابة نص التعليق");
@@ -329,6 +330,25 @@ export function createNotesHandlers(ctx: GatewayContext) {
       }
 
       const { db } = getDb();
+
+      // Keep the direct parent so reply-to-reply threads nest correctly,
+      // but verify it belongs to this note.
+      if (parentCid) {
+        const parentRow = (
+          await db
+            .select({ cid: note_comments.cid, author_topic: note_comments.author_topic })
+            .from(note_comments)
+            .where(and(eq(note_comments.cid, parentCid), eq(note_comments.note_nid, noteNid)))
+            .limit(1)
+        )[0];
+        if (!parentRow) {
+          parentCid = "";
+          replyToTopic = "";
+        } else if (!replyToTopic) {
+          replyToTopic = String(parentRow.author_topic || "");
+        }
+      }
+
       const cid = `nc_${stringGen(12)}`;
       const now = Date.now();
 
@@ -514,10 +534,27 @@ export function createNotesHandlers(ctx: GatewayContext) {
         return;
       }
 
+      // Delete the whole descendant subtree so deeper reply chains are not orphaned.
+      const treeRows = await db
+        .select({ cid: note_comments.cid, parent_cid: note_comments.parent_cid })
+        .from(note_comments)
+        .where(eq(note_comments.note_nid, noteNid));
+      const deletedCids = new Set<string>([commentCid]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const row of treeRows) {
+          if (row.parent_cid && deletedCids.has(row.parent_cid) && !deletedCids.has(row.cid)) {
+            deletedCids.add(row.cid);
+            grew = true;
+          }
+        }
+      }
+      const deleteList = [...deletedCids];
+
       await Promise.all([
-        db.delete(note_comments).where(eq(note_comments.cid, commentCid)),
-        db.delete(note_comments).where(eq(note_comments.parent_cid, commentCid)),
-        db.delete(note_comment_likes).where(eq(note_comment_likes.comment_cid, commentCid)),
+        db.delete(note_comments).where(inArray(note_comments.cid, deleteList)),
+        db.delete(note_comment_likes).where(inArray(note_comment_likes.comment_cid, deleteList)),
       ]);
 
       const countRes = await db
@@ -533,7 +570,7 @@ export function createNotesHandlers(ctx: GatewayContext) {
 
       ctx.io.emit("msg", {
         cmd: "note_comment_deleted",
-        data: { noteNid, commentCid, commentsCount },
+        data: { noteNid, commentCid, deletedCids: deleteList, commentsCount },
       });
       emitNotice(socket, "تم حذف التعليق");
     },

@@ -1,5 +1,5 @@
 import { cuts, getDb } from "@newchat/db";
-import { sanitizeHtmlText } from "@newchat/shared";
+import { sanitizeHtmlText, toArabicDigits, toEnglishDigits } from "@newchat/shared";
 
 export interface ShortcutRule {
   id: number;
@@ -71,8 +71,28 @@ export class ShortcutService {
     const triggers: string[] = [];
 
     for (const c of nextCuts) {
-      nextMap.set(c.text1, c.text2);
-      triggers.push(c.text1);
+      const raw = c.text1;
+      const rep = c.text2;
+
+      // 1. Direct trigger
+      if (!nextMap.has(raw)) {
+        nextMap.set(raw, rep);
+        triggers.push(raw);
+      }
+
+      // 2. Latin digits variant (e.g. س١ -> س1)
+      const latin = toEnglishDigits(raw);
+      if (latin && !nextMap.has(latin)) {
+        nextMap.set(latin, rep);
+        triggers.push(latin);
+      }
+
+      // 3. Arabic digits variant (e.g. س1 -> س١)
+      const arabic = toArabicDigits(latin || raw);
+      if (arabic && !nextMap.has(arabic)) {
+        nextMap.set(arabic, rep);
+        triggers.push(arabic);
+      }
     }
 
     let nextRegex: RegExp | null = null;
@@ -80,8 +100,8 @@ export class ShortcutService {
       // Sort triggers by length descending so longer phrases replace before substrings
       const sorted = [...triggers].sort((a, b) => b.length - a.length);
       const escaped = sorted.map((t) => escapeRegex(t));
-      // Pre-compile single combined regex with word/whitespace boundaries
-      const pattern = `(?<=^| )(${escaped.join("|")})(?= |$|\\n)`;
+      // Pre-compile single combined regex with unicode whitespace & punctuation boundaries
+      const pattern = `(?<=^|[\\s\\p{P}])(${escaped.join("|")})(?=$|[\\s\\p{P}])`;
       nextRegex = new RegExp(pattern, "gu");
     }
 

@@ -19,7 +19,7 @@ import {
   resolveAssetUrl,
 } from "../lib/mediaUrl.js";
 import { hasRoleFlag } from "../lib/permissions.js";
-import { AttachmentRenderer, SafeRichText } from "../lib/richContent.js";
+import { AttachmentRenderer, detectAttachmentTypeFromPath, SafeRichText } from "../lib/richContent.js";
 import { playSoundCue } from "../lib/soundFx.js";
 import { getUserGiftIco, getUserIco } from "../lib/userCosmetics.js";
 import { MemberAvatar } from "./MemberAvatar.js";
@@ -98,6 +98,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
     | null
     | undefined;
   const likesCount = Array.isArray(m.likes) ? m.likes.length : 0;
+  const hasAudioAttachment = Boolean(
+    m.file && (m.fileType === "audio" || detectAttachmentTypeFromPath(m.file) === "audio"),
+  );
 
   return isHmsg ? (
     <div dir="ltr" className="flex items-start gap-3">
@@ -325,7 +328,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
         {/* Bubble + Actions */}
         <div className="flex items-center gap-2">
           <div
-            className={`inline-block max-w-[88%] sm:max-w-[82%] rounded-2xl rounded-tl-none px-3.5 py-2 border transition ${
+            className={`${
+              hasAudioAttachment
+                ? "block min-w-0 flex-1 max-w-full sm:max-w-[520px]"
+                : "inline-block max-w-[88%] sm:max-w-[82%]"
+            } rounded-2xl rounded-tl-none px-3.5 py-2 border transition ${
               isMentioningMe
                 ? dark
                   ? "border-amber-500/60 bg-amber-500/10 text-amber-200"
@@ -361,7 +368,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
                   {replyVerified && <VerifiedBadge size="xs" />}
                 </div>
                 <div className={`truncate font-medium ${dark ? "opacity-85 text-slate-200" : "text-slate-700"}`}>
-                  {replyObj.msg}
+                  <SafeRichText text={replyObj.msg} dark={dark} />
                 </div>
               </div>
             )}
@@ -385,7 +392,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
             )}
 
             {/* Media Attachment */}
-            {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} />}
+            {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} dark={dark} />}
           </div>
 
           {/* Message Actions */}

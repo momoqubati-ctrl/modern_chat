@@ -1,10 +1,9 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-  beginRedisIdempotent,
   bots,
   coin_ledger,
-  completeRedisIdempotent,
   eq,
   getDb,
   getRedis,
@@ -13,12 +12,12 @@ import {
   site_master_wallet_ledger,
   sql,
   users,
-  executeUnifiedGiftTransfer,
+  executeWithIdempotency,
+  isIdempotencyError,
   isUnifiedEconomyError,
+  loadGiftSettings,
 } from "@newchat/db";
 import {
-  GIFT_IDEMPOTENCY_TTL_MS,
-  GIFT_PLATFORM_FEE_PERCENT,
   GIFT_RATE_LIMIT_MAX,
   GIFT_RATE_LIMIT_WINDOW_MS,
   SITE_MASTER_WALLET_SITE_ID,
@@ -35,6 +34,36 @@ import type { GatewayContext, GatewaySession } from "../types/gateway.js";
 import { disconnectUserSession } from "./authHandlers.js";
 
 export function createEconomyGamesHandlers(ctx: GatewayContext) {
+  function safeGiftErrorMessage(err: unknown): string {
+    const code = isUnifiedEconomyError(err) || isIdempotencyError(err)
+      ? String((err as { code?: string }).code || "")
+      : "";
+    switch (code) {
+      case "CANNOT_GIFT_SELF":
+        return "لا يمكنك إرسال هدية لنفسك";
+      case "INSUFFICIENT_COINS":
+        return "رصيد الكوينز غير كافٍ";
+      case "SENDER_NOT_FOUND":
+      case "RECEIVER_NOT_FOUND":
+        return "تعذر العثور على حساب المرسل أو المستلم";
+      case "INVALID_QUANTITY":
+        return "كمية الهدية غير صالحة";
+      case "GIFT_FEES_TOO_HIGH":
+        return "قيمة الهدية أقل من الرسوم المطبقة";
+      case "GIFT_FEE_SLAB_NOT_FOUND":
+      case "INVALID_GIFT_SETTINGS":
+      case "INVALID_HOSTING_FEE":
+        return "تعذر معالجة الهدية بسبب إعدادات النظام";
+      case "PAYLOAD_MISMATCH":
+        return "مفتاح العملية مستخدم لطلب مختلف";
+      case "CONCURRENT_TRANSACTION_IN_PROGRESS":
+      case "DEADLOCK_DETECTED":
+        return "العملية قيد المعالجة، يرجى المحاولة مجدداً";
+      default:
+        return "تعذر إرسال الهدية";
+    }
+  }
+
   async function executeGiftTransfer(
     socket: Socket,
     actor: GatewaySession,
@@ -42,6 +71,17 @@ export function createEconomyGamesHandlers(ctx: GatewayContext) {
   ): Promise<void> {
     if (actor.islogin !== "عضو" || !actor.uid) {
       emitNotice(socket, "إرسال الهدايا متاح للأعضاء المسجلين فقط");
+      return;
+    }
+    const ban = ctx.securityGuard.checkBan({
+      ip: actor.ip,
+      fp: actor.fp,
+      countryCode: actor.co,
+      username: actor.username,
+      topic: actor.topic,
+    });
+    if (ban.blocked) {
+      emitNotice(socket, "لا يمكن تنفيذ العملية لهذا الحساب");
       return;
     }
 
@@ -80,29 +120,35 @@ export function createEconomyGamesHandlers(ctx: GatewayContext) {
       return;
     }
 
+    const giftSettings = await loadGiftSettings();
+    if (!giftSettings.giftEnabled) {
+      emitNotice(socket, "إرسال الهدايا متوقف مؤقتاً");
+      return;
+    }
+    if (parsed.data.qty > giftSettings.maxQty) {
+      emitNotice(socket, `الحد الأقصى لكمية الهدية هو ${giftSettings.maxQty}`);
+      return;
+    }
+
     const rate = await ctx.securityGuard.consumeRateSlot(
       `gift:${actor.uid}`,
-      GIFT_RATE_LIMIT_MAX,
-      GIFT_RATE_LIMIT_WINDOW_MS,
+      giftSettings.rateLimitMax || GIFT_RATE_LIMIT_MAX,
+      giftSettings.rateLimitWindowMs || GIFT_RATE_LIMIT_WINDOW_MS,
     );
     if (!rate.ok) {
       emitNotice(socket, "الرجاء الانتظار قليلاً قبل إرسال هدية أخرى");
       return;
     }
 
-    const idemKey = parsed.data.idempotencyKey ? `gift:${actor.uid}:${parsed.data.idempotencyKey}` : "";
-    if (idemKey) {
-      const slot = await beginRedisIdempotent(idemKey, GIFT_IDEMPOTENCY_TTL_MS);
-      if (!slot.ok) return;
-    }
-
-    const totalCoin = Math.max(0, Number(giftDef.coin || 0)) * parsed.data.qty;
-    const now = Date.now();
-    const txid = `gift_${now}_${Math.random().toString(36).slice(2, 8)}`;
-
-    let transferRes;
+    const idempotencyKey =
+      parsed.data.idempotencyKey || crypto.randomBytes(16).toString("hex");
+    let execution: Awaited<ReturnType<typeof executeWithIdempotency>>;
     try {
-      transferRes = await executeUnifiedGiftTransfer({
+      execution = await executeWithIdempotency({
+        userUid: actor.uid,
+        idempotencyKey,
+        targetId: target.uid,
+        sourceType: "room",
         senderIdreg: Number(actor.idreg || 0),
         senderUid: actor.uid,
         senderIp: actor.ip,
@@ -112,37 +158,31 @@ export function createEconomyGamesHandlers(ctx: GatewayContext) {
         giftFile: giftDef.file,
         unitCoin: Number(giftDef.coin || 0),
         quantity: parsed.data.qty,
-        txid,
         noteSender: parsed.data.note || "",
         noteReceiver: parsed.data.note || "",
         isOnlineTarget: Boolean(target.id),
-        sourceType: "room",
+        maxWaitMs: 2500,
       });
     } catch (err: unknown) {
-      if (isUnifiedEconomyError(err)) {
-        if (err.isDeadlock || err.code === "DEADLOCK_DETECTED") {
-          emitNotice(socket, "حدث تعارض أثناء إرسال الهدية، يرجى المحاولة مجدداً");
-        } else {
-          emitNotice(socket, err.message || "تعذر إرسال الهدية");
-        }
+      if (isUnifiedEconomyError(err) || isIdempotencyError(err)) {
+        emitNotice(socket, safeGiftErrorMessage(err));
         return;
       }
       console.error("[Economy] gift transfer error:", err);
-      emitNotice(socket, "حدث خطأ أثناء إرسال الهدية");
+      emitNotice(socket, safeGiftErrorMessage(err));
       return;
     }
 
+    const transferRes = execution.data;
+    const txid = transferRes.txid;
     const receiverCoin = transferRes.receiverCoin;
+    const totalCoin = transferRes.totalCoin;
     const result = {
       ok: true as const,
       senderCoins: transferRes.senderAfter,
       receiverCoins: transferRes.receiverAfter,
       receiverGiftsCount: transferRes.receiverGiftsAfter,
     };
-
-    if (idemKey) {
-      await completeRedisIdempotent(idemKey, { txid, ok: true }, GIFT_IDEMPOTENCY_TTL_MS).catch(() => undefined);
-    }
 
     await ctx.presenceDirectory.patchSession(actor.id, {
       coin: result.senderCoins,
@@ -152,22 +192,23 @@ export function createEconomyGamesHandlers(ctx: GatewayContext) {
       coin: result.receiverCoins,
       coins: result.receiverCoins,
       gifts_received_count: result.receiverGiftsCount,
-      gift_ico: `/gifts_git/${giftDef.file}`,
     });
 
     emitNotice(socket, `تم إرسال الهدية إلى ${sanitizeHtmlText(target.topic)}`);
-    ctx.io.to(target.id).emit("msg", {
-      cmd: "not",
-      data: {
-        topic: sanitizeHtmlText(actor.topic),
-        force: 1,
-        msg: `أرسل لك ${sanitizeHtmlText(actor.topic)} هدية جديدة (+${receiverCoin} كوينز)`,
-        user: actor.id,
-      },
-    });
+    if (!execution.cached) {
+      ctx.io.to(target.id).emit("msg", {
+        cmd: "not",
+        data: {
+          topic: sanitizeHtmlText(actor.topic),
+          force: 1,
+          msg: `أرسل لك ${sanitizeHtmlText(actor.topic)} هدية جديدة (+${receiverCoin} كوينز)`,
+          user: actor.id,
+        },
+      });
+    }
 
     const sourceRoomId = actor.roomid || target.roomid;
-    if (sourceRoomId && actor.roomid === target.roomid) {
+    if (!execution.cached && sourceRoomId && actor.roomid === target.roomid) {
       ctx.io.to(sourceRoomId).emit("msg", {
         cmd: "gift_room_fx",
         data: {

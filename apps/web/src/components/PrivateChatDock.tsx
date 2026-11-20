@@ -25,6 +25,7 @@ import {
   Search,
   Send,
   Settings,
+  Smile,
   Square,
   Trash2,
   Video,
@@ -33,7 +34,8 @@ import {
 } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
 import { usePmWebRtcCall } from "../hooks/usePmWebRtcCall.js";
-import { formatTimeArabic } from "../lib/mediaUrl.js";
+import { EMOJI_IMAGE_CLASS, emojiShortcut, applyTextShortcuts } from "../lib/emojiShortcuts.js";
+import { formatTimeArabic, resolveAssetUrl } from "../lib/mediaUrl.js";
 import {
   explainMediaAccessError,
   isMediaCaptureSupported,
@@ -45,6 +47,8 @@ import { detectAttachmentTypeFromPath, SafeRichText, AttachmentRenderer } from "
 import { playSoundCue } from "../lib/soundFx.js";
 import { getUserGiftIco, getUserIco } from "../lib/userCosmetics.js";
 import { MemberAvatar } from "./MemberAvatar.js";
+import { VoiceNotePlayer } from "./media/VoiceNotePlayer.js";
+import { VoiceRecordingBar } from "./media/VoiceRecordingBar.js";
 import { VerifiedBadge, isUserVerified } from "./VerifiedBadge.js";
 import { NotesStripBar } from "./notes/NotesStripBar.js";
 import { NoteViewerModal } from "./notes/NoteViewerModal.js";
@@ -77,6 +81,8 @@ export function PrivateChatDock({
   const toggleNoteLike = useChatStore((s) => s.toggleNoteLike);
   const addNoteComment = useChatStore((s) => s.addNoteComment);
   const powers = useChatStore((s) => s.powers);
+  const emos = useChatStore((s) => s.emos);
+  const shortcuts = useChatStore((s) => s.shortcuts);
   const pmTypingUsers = useChatStore((s) => s.pmTypingUsers);
   const sendTyping = useChatStore((s) => s.sendTyping);
   const searchYoutube = useChatStore((s) => s.searchYoutube);
@@ -114,6 +120,7 @@ export function PrivateChatDock({
   const [uploading, setUploading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSec, setRecordingSec] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // YouTube search modal state
   const [ytModalOpen, setYtModalOpen] = useState(false);
@@ -139,12 +146,14 @@ export function PrivateChatDock({
   const recordedChunksRef = useRef<BlobPart[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingSecRef = useRef(0);
+  const cancelRecordingRef = useRef(false);
   const lastTypingEmitRef = useRef(0);
   const stopTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const lastPmTotalRef = useRef(0);
 
   // Fetch notes on mount/open
@@ -330,12 +339,39 @@ export function PrivateChatDock({
     }, 3000);
   };
 
+  const insertToken = (token: string, keepPickerOpen = false) => {
+    const input = inputRef.current;
+    if (input && typeof input.selectionStart === "number" && typeof input.selectionEnd === "number") {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const before = draft.slice(0, start);
+      const after = draft.slice(end);
+      const needLead = before.length > 0 && !before.endsWith(" ");
+      const needTrail = after.length === 0 || !after.startsWith(" ");
+      const insert = `${needLead ? " " : ""}${token}${needTrail ? " " : ""}`;
+      const nextVal = `${before}${insert}${after}`;
+      setDraft(nextVal);
+      requestAnimationFrame(() => {
+        input.focus();
+        const pos = start + insert.length;
+        input.setSelectionRange(pos, pos);
+      });
+    } else {
+      setDraft((prev) => (prev ? `${prev.trimEnd()} ${token} ` : `${token} `));
+      inputRef.current?.focus();
+    }
+    if (!keepPickerOpen) {
+      setPickerOpen(false);
+    }
+  };
+
   const handleSend = (e: FormEvent) => {
     e.preventDefault();
     if (!selectedId || !draft.trim()) return;
     if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
     sendTyping(false, selectedId);
-    sendPrivateMessage(selectedId, draft);
+    const expanded = applyTextShortcuts(draft.trim(), shortcuts);
+    sendPrivateMessage(selectedId, expanded);
     setDraft("");
   };
 
@@ -391,6 +427,7 @@ export function PrivateChatDock({
       const stream = await requestUserMediaWithFallback({ audio: true, video: false });
       const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
       const recorder = new MediaRecorder(stream, { mimeType: mime });
+      cancelRecordingRef.current = false;
       recordedChunksRef.current = [];
       recorder.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordedChunksRef.current.push(ev.data);
@@ -398,6 +435,11 @@ export function PrivateChatDock({
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         stopRecordingTimer();
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false;
+          setRecordingSec(0);
+          return;
+        }
         const blob = new Blob(recordedChunksRef.current, { type: mime });
         const previewUrl = URL.createObjectURL(blob);
         const reader = new FileReader();
@@ -425,6 +467,15 @@ export function PrivateChatDock({
       stopRecordingTimer();
       pushNotice(explainMediaAccessError(err, "mic"), { force: 1 });
     }
+  };
+
+  const handleCancelRecording = () => {
+    cancelRecordingRef.current = true;
+    mediaRecorderRef.current?.stop();
+    stopRecordingTimer();
+    setRecording(false);
+    setRecordingSec(0);
+    recordingSecRef.current = 0;
   };
 
   const handleCancelPendingMedia = () => {
@@ -1038,7 +1089,7 @@ export function PrivateChatDock({
                               }`}
                             >
                               {m.msg && <SafeRichText text={m.msg} dark={dark} />}
-                              {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} />}
+                              {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} dark={dark} />}
                             </div>
                           </div>
                         </div>
@@ -1047,7 +1098,7 @@ export function PrivateChatDock({
                         <div className="max-w-[85%] text-left">
                           <div className="bg-gradient-to-tr from-sky-600 to-sky-500 text-white rounded-2xl rounded-tl-none px-3.5 py-2.5 text-xs shadow-xs">
                             {m.msg && <SafeRichText text={m.msg} dark={dark} />}
-                            {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} />}
+                            {m.file && <AttachmentRenderer file={m.file} fileType={m.fileType} dark={dark} />}
                             <div className="mt-1 text-[9px] opacity-80 text-left dir-ltr flex items-center gap-1">
                               {m.seen ? (
                                 <CheckCheck className="w-3 h-3 text-sky-100" />
@@ -1095,14 +1146,84 @@ export function PrivateChatDock({
 
             {/* Live Voice Recording Bar Indicator */}
             {recording && (
-              <div className="px-3.5 py-2 bg-rose-500/15 border-t border-rose-500/30 flex items-center justify-between text-xs font-bold text-rose-500 shrink-0 animate-pulse">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-                  <span>جارٍ تسجيل رسالة صوتية...</span>
+              <div className="px-2.5 pt-2.5 shrink-0">
+                <VoiceRecordingBar
+                  dark={dark}
+                  seconds={recordingSec}
+                  label="جارٍ تسجيل رسالة خاصة..."
+                  onCancel={handleCancelRecording}
+                  onStop={() => void toggleVoiceRecording()}
+                />
+              </div>
+            )}
+
+            {/* Smiley Picker */}
+            {pickerOpen && (
+              <div
+                className={`mx-2.5 mt-2.5 rounded-2xl border shadow-lg overflow-hidden shrink-0 ${
+                  dark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+                }`}
+              >
+                <div
+                  className={`flex items-center justify-between px-3 py-2 border-b ${
+                    dark ? "border-slate-800" : "border-slate-200"
+                  }`}
+                >
+                  <span className="px-2 py-1 rounded-lg text-[11px] font-bold bg-sky-600 text-white">
+                    سمايلات ({emos.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(false)}
+                    className={`transition ${
+                      dark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"
+                    }`}
+                    title="إغلاق"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="dir-ltr font-mono font-bold">
-                  {Math.floor(recordingSec / 60)}:{(recordingSec % 60).toString().padStart(2, "0")}
+                <div className="p-2.5 max-h-44 overflow-y-auto chat-scroll grid grid-cols-5 gap-1.5">
+                  {emos.map((file, index) => (
+                    <button
+                      key={file}
+                      type="button"
+                      onClick={() => {
+                        insertToken(emojiShortcut(index), true);
+                      }}
+                      title={emojiShortcut(index)}
+                      className={`p-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition ${
+                        dark ? "hover:bg-slate-800" : "hover:bg-slate-100"
+                      }`}
+                    >
+                      <img src={resolveAssetUrl(file, "emo", "")} alt="" className={EMOJI_IMAGE_CLASS} />
+                      <span className="text-[9px] font-bold opacity-70" dir="rtl">
+                        {emojiShortcut(index)}
+                      </span>
+                    </button>
+                  ))}
                 </div>
+              </div>
+            )}
+
+            {/* Shortcuts Strip */}
+            {shortcuts.length > 0 && (
+              <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center gap-1.5 overflow-x-auto chat-scroll shrink-0 bg-slate-50/70 dark:bg-slate-950/40">
+                {shortcuts.slice(0, 20).map((sc, idx) => (
+                  <button
+                    key={`${sc.text1}-${idx}`}
+                    type="button"
+                    onClick={() => insertToken(sc.text1, false)}
+                    title={sc.text2 || sc.text1}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-medium border shrink-0 transition ${
+                      dark
+                        ? "bg-slate-900 border-slate-800 hover:border-sky-500/50 text-slate-300"
+                        : "bg-white border-slate-200 hover:border-sky-400 text-slate-700"
+                    }`}
+                  >
+                    {sc.text1}
+                  </button>
+                ))}
               </div>
             )}
 
@@ -1111,6 +1232,22 @@ export function PrivateChatDock({
               onSubmit={handleSend}
               className="p-2.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center gap-1.5 shrink-0 bg-slate-50/50 dark:bg-slate-950/20"
             >
+              {/* Smiley Button */}
+              <button
+                type="button"
+                onClick={() => setPickerOpen((o) => !o)}
+                title="الفيسات (سمايلات)"
+                className={`p-2 rounded-xl border transition shrink-0 ${
+                  pickerOpen
+                    ? "bg-sky-600 border-sky-500 text-white"
+                    : dark
+                      ? "border-slate-800 hover:bg-slate-800 text-slate-300"
+                      : "border-slate-200 hover:bg-slate-100 text-slate-600"
+                }`}
+              >
+                <Smile className="w-4 h-4" />
+              </button>
+
               {/* Attachment Button */}
               <label
                 title="إرسال مرفق"
@@ -1150,15 +1287,20 @@ export function PrivateChatDock({
                   recording
                     ? "bg-rose-600 border-rose-500 text-white animate-pulse"
                     : dark
-                      ? "border-slate-800 hover:bg-slate-800 text-slate-300"
-                      : "border-slate-200 hover:bg-slate-100 text-slate-600"
+                      ? "border-slate-800 hover:bg-slate-800 text-rose-400"
+                      : "border-slate-200 hover:bg-slate-100 text-rose-600"
                 }`}
               >
-                {recording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {recording ? (
+                  <Square className="w-4 h-4 fill-current" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
               </button>
 
               {/* Text Input */}
               <input
+                ref={inputRef}
                 type="text"
                 value={draft}
                 onChange={(e) => handleDraftChange(e.target.value)}
@@ -1417,10 +1559,10 @@ export function PrivateChatDock({
                       استمع إلى التسجيل للتأكد من وضوح الصوت قبل إرساله في المحادثة الخاصة
                     </div>
                   </div>
-                  <audio
+                  <VoiceNotePlayer
                     src={pendingMedia.previewUrl}
-                    controls
-                    className="w-full max-w-sm mt-1"
+                    dark={dark}
+                    className="mt-1 w-full max-w-[460px]"
                   />
                 </div>
               )}

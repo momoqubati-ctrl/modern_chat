@@ -6,6 +6,7 @@ import type { OnlineUserSnapshot } from "@newchat/shared";
 import { MemberAvatar, MemberBadgesInline, MemberPrefixIcons, getStatusLabel } from "./MemberAvatar.js";
 import { adjustColorForTheme, getCountryNameArabic, resolveCountryFlagUrl } from "../lib/mediaUrl.js";
 import { getUserCover, getUserTheme } from "../lib/userCosmetics.js";
+import { SafeRichText } from "../lib/richContent.js";
 
 interface VirtualizedMembersListProps {
   dark: boolean;
@@ -223,7 +224,7 @@ export function VirtualizedMembersList({
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 min-w-0">
                           <span dir="auto" className="truncate">
-                            {u.msg || getStatusLabel(u.stat, u.offline)}
+                            {u.msg ? <SafeRichText text={u.msg} dark={dark} /> : getStatusLabel(u.stat, u.offline)}
                           </span>
                           {isBot && (
                             <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[10px] font-bold shrink-0">

@@ -1127,7 +1127,8 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
           return;
         }
 
-        const body = sanitizeHtmlText(String(d.body || d.text || "").trim()).slice(0, 500);
+        const rawBody = sanitizeHtmlText(String(d.body || d.text || "").trim()).slice(0, 500);
+        const body = ctx.catalogStore.replaceShortcuts(rawBody);
         if (!body) return;
         if (ctx.catalogStore.scanProhibitedWords(body)) {
           emitNotice(socket, "يحتوي التعليق على كلمات غير مسموح بها");
@@ -1137,11 +1138,12 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
         let parentCid = sanitizeHtmlText(String(d.parentCid || "").trim()).slice(0, 64);
         let replyToTopic = sanitizeHtmlText(String(d.replyToTopic || "").trim()).slice(0, 150);
 
-        // Normalize deep reply onto root parent comment for crisp 2-level Instagram hierarchy
+        // Keep the direct parent so reply-to-reply threads nest correctly,
+        // but verify it belongs to this story item.
         if (parentCid) {
           const parentRow = (
             await db
-              .select({ cid: story_comments.cid, parent_cid: story_comments.parent_cid, author_topic: story_comments.author_topic })
+              .select({ cid: story_comments.cid, author_topic: story_comments.author_topic })
               .from(story_comments)
               .where(
                 and(
@@ -1155,13 +1157,8 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
           if (!parentRow) {
             parentCid = "";
             replyToTopic = "";
-          } else {
-            if (!replyToTopic) {
-              replyToTopic = String(parentRow.author_topic || "");
-            }
-            if (parentRow.parent_cid) {
-              parentCid = String(parentRow.parent_cid);
-            }
+          } else if (!replyToTopic) {
+            replyToTopic = String(parentRow.author_topic || "");
           }
         }
 
@@ -1312,14 +1309,28 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
           return;
         }
 
-        const childRows = await db
-          .select({ cid: story_comments.cid })
+        // Delete the whole descendant subtree so deeper reply chains are not orphaned.
+        const treeRows = await db
+          .select({ cid: story_comments.cid, parent_cid: story_comments.parent_cid })
           .from(story_comments)
-          .where(and(eq(story_comments.story_sid, storySid), eq(story_comments.parent_cid, commentCid)));
-        const deletedCids = [commentCid, ...childRows.map((c) => c.cid)];
+          .where(and(eq(story_comments.story_sid, storySid), eq(story_comments.item_id, itemId)));
+        const deletedCids = new Set<string>([commentCid]);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const row of treeRows) {
+            if (row.parent_cid && deletedCids.has(row.parent_cid) && !deletedCids.has(row.cid)) {
+              deletedCids.add(row.cid);
+              grew = true;
+            }
+          }
+        }
+        const deleteList = [...deletedCids];
 
-        await db.delete(story_comment_likes).where(inArray(story_comment_likes.comment_cid, deletedCids));
-        await db.delete(story_comments).where(inArray(story_comments.cid, deletedCids));
+        await db
+          .delete(story_comment_likes)
+          .where(inArray(story_comment_likes.comment_cid, deleteList));
+        await db.delete(story_comments).where(inArray(story_comments.cid, deleteList));
 
         const countRes = await db
           .select({ cnt: sql<number>`count(*)::int` })
@@ -1329,7 +1340,7 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
 
         ctx.io.emit("msg", {
           cmd: "story_comment_deleted",
-          data: { storySid, itemId, commentCid, deletedCids, commentsCount },
+          data: { storySid, itemId, commentCid, deletedCids: deleteList, commentsCount },
         });
       }
     },

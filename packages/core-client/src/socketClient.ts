@@ -678,7 +678,15 @@ export class NewChatSocketClient {
   }
 
   sendGift(targetSocketId: string, giftFile: string): void {
-    this.emitCmd("gift", { id: targetSocketId, file: giftFile });
+    const idempotencyKey =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : "";
+    this.emitCmd("gift", {
+      id: targetSocketId,
+      file: giftFile,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    });
   }
 
   // -------- Mic Stage & Private Calls --------

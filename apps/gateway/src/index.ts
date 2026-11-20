@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createAdapter } from "@socket.io/redis-adapter";
-import { closeDb, closeRedis, getDb, getRedis, sql } from "@newchat/db";
+import { closeDb, closeRedis, ensureGiftSystemTablesExist, getDb, getRedis, sql } from "@newchat/db";
 import Redis from "ioredis";
 import { Server, type Socket } from "socket.io";
 import msgpackParser from "socket.io-msgpack-parser";
@@ -41,7 +41,21 @@ const ACTION_SHORTHAND_CMDS = new Set([
   "gift_icon",
 ]);
 
+async function deleteKeysByPattern(redis: Redis, pattern: string): Promise<number> {
+  let cursor = "0";
+  let deleted = 0;
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 500);
+    cursor = nextCursor;
+    if (keys.length > 0) {
+      deleted += await redis.del(...keys);
+    }
+  } while (cursor !== "0");
+  return deleted;
+}
+
 export async function startGateway(externalHttpServer?: http.Server): Promise<{ io: Server; shutdown: () => Promise<void> }> {
+  await ensureGiftSystemTablesExist();
   const isStandalone = !externalHttpServer;
   const httpServer = externalHttpServer || http.createServer((req, res) => {
     if (req.url === "/healthz" || req.url === "/health") {
@@ -121,9 +135,23 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
     const bootEpoch = Date.now();
     await redis.set("newchat:server:boot_epoch", String(bootEpoch));
 
+    // Every session is invalidated on restart, so all room membership sets,
+    // uid sockets, and stage occupant data are stale too.
+    // Leaving them behind made listener/room counters grow forever across restarts.
+    const [staleRoomMemberSets, staleUidSockets, staleStageOccupants, staleRoomMics] =
+      await Promise.all([
+        deleteKeysByPattern(redis, "newchat:room:*:members"),
+        deleteKeysByPattern(redis, "newchat:uid_sockets:*"),
+        deleteKeysByPattern(redis, "newchat:stage:occupant:*"),
+        deleteKeysByPattern(redis, "newchat:room:mics:*"),
+      ]);
+    await redis.del("newchat:stage:active_occupants", "newchat:stage:reconcile_lock");
+
     const { db } = getDb();
     await db.execute(sql`UPDATE users SET token = md5(random()::text || clock_timestamp()::text)`);
-    console.log(`[Gateway] All sessions and presence flushed for restart. Boot epoch: ${bootEpoch}`);
+    console.log(
+      `[Gateway] All sessions and presence flushed for restart. Cleaned: ${staleRoomMemberSets} room member sets, ${staleUidSockets} uid sets, ${staleRoomMics} stage states. Boot epoch: ${bootEpoch}`,
+    );
   } catch (err) {
     console.error("[Gateway] Failed to flush presence/sessions on restart:", err);
   }
@@ -155,6 +183,7 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
   micStageManager.bindCarromSyncCallback(async (roomId, reasonText) => {
     await carromManager.syncRoomGame(roomId, reasonText);
   });
+  presenceDirectory.bindRoomMembershipChanged((roomId) => micStageManager.emitListenerCountToRoom(roomId));
   micStageManager.startMaintenanceLoop();
 
   busBridge.start();

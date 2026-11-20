@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Award, Check, Coins, Gift, Image, Palette, Pencil, Plus, RotateCcw, Save, Settings2, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
-import type { EvaluationAwardActionKey } from "@newchat/shared";
+import {
+  giftFeeSlabSchema,
+  giftSettingsSchema,
+  type EvaluationAwardActionKey,
+} from "@newchat/shared";
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
 import { getBadgeStyle } from "../../lib/badgeStyle.js";
 import type { CpTabProps } from "./CpOverviewLogs.js";
@@ -835,13 +839,34 @@ export function CpGiftsTab({ dark, token, onNotify }: CpTabProps) {
   const getApiClient = useChatStore((s) => s.getApiClient);
   const [gifts, setGifts] = useState<Array<Record<string, unknown>>>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [giftSettings, setGiftSettings] = useState<{
+    maxQty: number;
+    rateLimitMax: number;
+    rateLimitWindowMs: number;
+    giftEnabled: boolean;
+  } | null>(null);
+  const [slabs, setSlabs] = useState<Array<{
+    id: number;
+    slab_min_coin: number;
+    slab_max_coin: number | null;
+    platform_fee_bps: number;
+  }>>([]);
+  const [slabMin, setSlabMin] = useState("");
+  const [slabMax, setSlabMax] = useState("");
+  const [slabFeePercent, setSlabFeePercent] = useState("");
+  const [editingSlabId, setEditingSlabId] = useState<number | null>(null);
+  const [savingGiftConfig, setSavingGiftConfig] = useState(false);
   const [catName, setCatName] = useState("");
   const [giftName, setGiftName] = useState("");
   const [giftCoin, setGiftCoin] = useState("10");
   const [giftCat, setGiftCat] = useState("افتراضي");
 
   const load = useCallback(async () => {
-    const res = await getApiClient().cpCommand(token, "gifts_git_get").catch(() => null);
+    const api = getApiClient();
+    const [res, configRes] = await Promise.all([
+      api.cpCommand(token, "gifts_git_get").catch(() => null),
+      api.cpCommand(token, "gift_settings_get").catch(() => null),
+    ]);
     const msg = (res as { msg?: { gifts?: Array<Record<string, unknown>>; categories?: Array<string | { name?: string }> } } | null)?.msg;
     if (msg) {
       setGifts(Array.isArray(msg.gifts) ? msg.gifts : []);
@@ -851,6 +876,14 @@ export function CpGiftsTab({ dark, token, onNotify }: CpTabProps) {
           : [],
       );
     }
+    const giftConfig = (configRes as {
+      data?: {
+        settings?: typeof giftSettings;
+        slabs?: typeof slabs;
+      };
+    } | null)?.data;
+    if (giftConfig?.settings) setGiftSettings(giftConfig.settings);
+    if (Array.isArray(giftConfig?.slabs)) setSlabs(giftConfig.slabs);
   }, [token, getApiClient]);
 
   useEffect(() => {
@@ -884,6 +917,57 @@ export function CpGiftsTab({ dark, token, onNotify }: CpTabProps) {
   const inputCls = `w-full rounded-xl px-3 py-2 text-xs border outline-none ${
     dark ? "bg-slate-950 border-slate-700 text-slate-100" : "bg-white border-slate-300 text-slate-900"
   }`;
+
+  const saveGiftSettings = async () => {
+    if (!giftSettings) return;
+    const parsed = giftSettingsSchema.safeParse(giftSettings);
+    if (!parsed.success) {
+      onNotify("تحقق من حدود الكمية ومعدل الإرسال", false);
+      return;
+    }
+    setSavingGiftConfig(true);
+    try {
+      const res = await getApiClient().cpCommand(token, "gift_settings_save", { data: parsed.data });
+      onNotify(String(res.msg || "تعذر حفظ إعدادات الهدايا"), !res.err);
+      if (!res.err) void load();
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "تعذر حفظ إعدادات الهدايا", false);
+    } finally {
+      setSavingGiftConfig(false);
+    }
+  };
+
+  const saveGiftSlab = async (event: FormEvent) => {
+    event.preventDefault();
+    const parsed = giftFeeSlabSchema.safeParse({
+      slabMin: Number(slabMin),
+      slabMax: slabMax.trim() ? Number(slabMax) : null,
+      platformFeeBps: Number(slabFeePercent) * 100,
+    });
+    if (!parsed.success) {
+      onNotify("بيانات شريحة الرسوم غير صالحة", false);
+      return;
+    }
+    setSavingGiftConfig(true);
+    try {
+      const res = await getApiClient().cpCommand(token, "gift_slab_upsert", {
+        ...parsed.data,
+        ...(editingSlabId ? { id: editingSlabId } : {}),
+      });
+      onNotify(String(res.msg || "تعذر حفظ الشريحة"), !res.err);
+      if (!res.err) {
+        setEditingSlabId(null);
+        setSlabMin("");
+        setSlabMax("");
+        setSlabFeePercent("");
+        void load();
+      }
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "تعذر حفظ الشريحة", false);
+    } finally {
+      setSavingGiftConfig(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -974,6 +1058,93 @@ export function CpGiftsTab({ dark, token, onNotify }: CpTabProps) {
           </div>
         ))}
       </div>
+
+      <section className={`p-4 rounded-3xl border space-y-4 ${cardCls}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-extrabold flex items-center gap-1.5">
+            <Settings2 className="w-4 h-4 text-sky-400" />
+            إعدادات نظام الهدايا والرسوم
+          </h2>
+          <span className="text-xs text-slate-400">نسبة مالك الاستضافة محددة من بيئة النشر</span>
+        </div>
+        {giftSettings ? (
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+            <label className="text-xs space-y-1">
+              <span>الحد الأقصى لكمية الهدية</span>
+              <input type="number" min={1} max={100} value={giftSettings.maxQty} onChange={(e) => setGiftSettings({ ...giftSettings, maxQty: Number(e.target.value) })} className={inputCls} />
+            </label>
+            <label className="text-xs space-y-1">
+              <span>عدد الهدايا ضمن فترة الحد</span>
+              <input type="number" min={1} max={100} value={giftSettings.rateLimitMax} onChange={(e) => setGiftSettings({ ...giftSettings, rateLimitMax: Number(e.target.value) })} className={inputCls} />
+            </label>
+            <label className="text-xs space-y-1">
+              <span>فترة الحد (مللي ثانية)</span>
+              <input type="number" min={1000} max={60000} step={1000} value={giftSettings.rateLimitWindowMs} onChange={(e) => setGiftSettings({ ...giftSettings, rateLimitWindowMs: Number(e.target.value) })} className={inputCls} />
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-bold">
+              <input type="checkbox" checked={giftSettings.giftEnabled} onChange={(e) => setGiftSettings({ ...giftSettings, giftEnabled: e.target.checked })} className="accent-sky-500" />
+              إرسال الهدايا مفعّل
+            </label>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">جارٍ تحميل الإعدادات...</p>
+        )}
+        <button type="button" disabled={!giftSettings || savingGiftConfig} onClick={() => void saveGiftSettings()} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-xs font-bold disabled:opacity-50">
+          <Save className="inline w-3.5 h-3.5 ml-1" />
+          حفظ الإعدادات
+        </button>
+      </section>
+
+      <section className={`p-4 rounded-3xl border space-y-4 ${cardCls}`}>
+        <h2 className="text-sm font-extrabold">شرائح رسوم المنصة</h2>
+        <div className="space-y-2">
+          {slabs.map((slab) => (
+            <div key={slab.id} className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-xs ${subCls}`}>
+              <span>{slab.slab_min_coin} إلى {slab.slab_max_coin ?? "∞"} كوينز</span>
+              <span className="font-bold text-amber-400">{(slab.platform_fee_bps / 100).toLocaleString("ar")}٪</span>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => {
+                  setEditingSlabId(slab.id);
+                  setSlabMin(String(slab.slab_min_coin));
+                  setSlabMax(slab.slab_max_coin === null ? "" : String(slab.slab_max_coin));
+                  setSlabFeePercent(String(slab.platform_fee_bps / 100));
+                }} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1">
+                  <Pencil className="w-3 h-3" /> تعديل
+                </button>
+                <button type="button" disabled={savingGiftConfig} onClick={async () => {
+                  setSavingGiftConfig(true);
+                  try {
+                    const res = await getApiClient().cpCommand(token, "gift_slab_delete", { id: slab.id });
+                    onNotify(String(res.msg || "تعذر حذف الشريحة"), !res.err);
+                    if (!res.err) void load();
+                  } catch (err) {
+                    onNotify(err instanceof Error ? err.message : "تعذر حذف الشريحة", false);
+                  } finally {
+                    setSavingGiftConfig(false);
+                  }
+                }} className="inline-flex items-center gap-1 rounded-lg border border-rose-900 px-2 py-1 text-rose-400 disabled:opacity-50">
+                  <Trash2 className="w-3 h-3" /> حذف
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={(event) => void saveGiftSlab(event)} className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+          <label className="text-xs space-y-1"><span>من كوين</span><input type="number" min={1} value={slabMin} onChange={(e) => setSlabMin(e.target.value)} className={inputCls} required /></label>
+          <label className="text-xs space-y-1"><span>إلى كوين (فارغ = بلا حد)</span><input type="number" min={1} value={slabMax} onChange={(e) => setSlabMax(e.target.value)} className={inputCls} /></label>
+          <label className="text-xs space-y-1"><span>رسوم المنصة %</span><input type="number" min={0} max={50} step={0.01} value={slabFeePercent} onChange={(e) => setSlabFeePercent(e.target.value)} className={inputCls} required /></label>
+          <button type="submit" disabled={savingGiftConfig} className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold disabled:opacity-50">
+            <Save className="inline w-3.5 h-3.5 ml-1" />
+            {editingSlabId ? "تحديث الشريحة" : "إضافة شريحة"}
+          </button>
+          {editingSlabId && <button type="button" onClick={() => {
+            setEditingSlabId(null);
+            setSlabMin("");
+            setSlabMax("");
+            setSlabFeePercent("");
+          }} className="text-xs text-slate-400">إلغاء التعديل</button>}
+        </form>
+      </section>
     </div>
   );
 }

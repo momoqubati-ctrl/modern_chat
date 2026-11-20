@@ -37,10 +37,17 @@ import {
   storieview,
   sub,
   users,
+  gift_fee_slabs,
+  gift_settings,
+  invalidateGiftConfigCache,
+  loadGiftFeeSlabs,
+  loadGiftSettings,
 } from "@newchat/db";
 import {
   DEFAULT_POWERS,
   DEFAULT_POWER_NON,
+  giftFeeSlabSchema,
+  giftSettingsSchema,
   MIC_SLOT_COUNT,
   canAccessAnyHostingSection,
   canAccessHostingSection,
@@ -940,6 +947,141 @@ async function handleCpCommand(
       const gifts = normalizeGiftsGit(stg?.gifts_git);
       const categories = normalizeGiftCategories(stg?.gift_categories, gifts);
       return { err: false, msg: { gifts, categories } };
+    }
+    case "gift_settings_get": {
+      const [giftConfig, slabs] = await Promise.all([loadGiftSettings(), loadGiftFeeSlabs()]);
+      return {
+        err: false,
+        data: {
+          settings: giftConfig,
+          slabs,
+          hostingFeeSource: "environment",
+        },
+      };
+    }
+    case "gift_settings_save": {
+      if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };
+      const parsed = giftSettingsSchema.safeParse(parseJsonObjectParam(params.data) || params);
+      if (!parsed.success) return reply.code(400).send({ err: true, msg: "إعدادات الهدايا غير صالحة" });
+      const now = Date.now();
+      const settingsToSave = [
+        ["max_qty", String(parsed.data.maxQty)],
+        ["rate_limit_max", String(parsed.data.rateLimitMax)],
+        ["rate_limit_window_ms", String(parsed.data.rateLimitWindowMs)],
+        ["gift_enabled", String(parsed.data.giftEnabled)],
+      ] as const;
+      await db.transaction(async (tx) => {
+        for (const [key, value] of settingsToSave) {
+          await tx
+            .insert(gift_settings)
+            .values({ key, value, updated_at: now, updated_by: data.idreg })
+            .onConflictDoUpdate({
+              target: gift_settings.key,
+              set: { value, updated_at: now, updated_by: data.idreg },
+            });
+        }
+      });
+      await invalidateGiftConfigCache();
+      await savestate({
+        state: "تعديل إعدادات الهدايا",
+        topic: data.topic,
+        topic1: data.username,
+        room: "",
+        ip: actorIp,
+        time: now,
+      });
+      return { err: false, msg: "تم حفظ إعدادات الهدايا" };
+    }
+    case "gift_slab_upsert": {
+      if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };
+      const payload = parseJsonObjectParam(params.data) || params;
+      const parsed = giftFeeSlabSchema.safeParse(payload);
+      if (!parsed.success) return reply.code(400).send({ err: true, msg: "بيانات شريحة الرسوم غير صالحة" });
+      const rawId = Number(payload.id || 0);
+      if (!Number.isSafeInteger(rawId) || rawId < 0) {
+        return reply.code(400).send({ err: true, msg: "معرف الشريحة غير صالح" });
+      }
+      const now = Date.now();
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(71838291)`);
+        const existing = await tx.select().from(gift_fee_slabs).for("update");
+        const candidateMax = parsed.data.slabMax ?? Number.POSITIVE_INFINITY;
+        const overlap = existing.some((slab) => {
+          if (slab.id === rawId) return false;
+          const currentMax = slab.slab_max_coin ?? Number.POSITIVE_INFINITY;
+          return parsed.data.slabMin <= currentMax && slab.slab_min_coin <= candidateMax;
+        });
+        if (overlap) return "overlap" as const;
+        if (rawId > 0) {
+          const current = existing.find((slab) => slab.id === rawId);
+          if (!current) return "missing" as const;
+          await tx
+            .update(gift_fee_slabs)
+            .set({
+              slab_min_coin: parsed.data.slabMin,
+              slab_max_coin: parsed.data.slabMax,
+              platform_fee_bps: parsed.data.platformFeeBps,
+              is_active: true,
+              updated_at: now,
+            })
+            .where(eq(gift_fee_slabs.id, rawId));
+        } else {
+          await tx.insert(gift_fee_slabs).values({
+            slab_min_coin: parsed.data.slabMin,
+            slab_max_coin: parsed.data.slabMax,
+            platform_fee_bps: parsed.data.platformFeeBps,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+          });
+        }
+        return "saved" as const;
+      });
+      if (result === "overlap") {
+        return reply.code(409).send({ err: true, msg: "تتداخل هذه الشريحة مع شريحة رسوم أخرى" });
+      }
+      if (result === "missing") return reply.code(404).send({ err: true, msg: "شريحة الرسوم غير موجودة" });
+      await invalidateGiftConfigCache();
+      await savestate({
+        state: "تعديل شريحة رسوم هدية",
+        topic: data.topic,
+        topic1: `${parsed.data.slabMin}-${parsed.data.slabMax ?? "∞"}`,
+        room: "",
+        ip: actorIp,
+        time: now,
+      });
+      return { err: false, msg: "تم حفظ شريحة الرسوم" };
+    }
+    case "gift_slab_delete": {
+      if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };
+      const id = Number(params.id || 0);
+      if (!Number.isSafeInteger(id) || id < 1) {
+        return reply.code(400).send({ err: true, msg: "معرف الشريحة غير صالح" });
+      }
+      const result = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(71838291)`);
+        const activeSlabs = await tx
+          .select()
+          .from(gift_fee_slabs)
+          .where(eq(gift_fee_slabs.is_active, true))
+          .for("update");
+        if (!activeSlabs.some((slab) => slab.id === id)) return "missing" as const;
+        if (activeSlabs.length <= 1) return "last" as const;
+        await tx.delete(gift_fee_slabs).where(eq(gift_fee_slabs.id, id));
+        return "deleted" as const;
+      });
+      if (result === "missing") return reply.code(404).send({ err: true, msg: "شريحة الرسوم غير موجودة" });
+      if (result === "last") return reply.code(409).send({ err: true, msg: "يجب الإبقاء على شريحة رسوم واحدة على الأقل" });
+      await invalidateGiftConfigCache();
+      await savestate({
+        state: "حذف شريحة رسوم هدية",
+        topic: data.topic,
+        topic1: String(id),
+        room: "",
+        ip: actorIp,
+        time: Date.now(),
+      });
+      return { err: false, msg: "تم حذف شريحة الرسوم" };
     }
     case "gift_category_add": {
       if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };
@@ -2162,6 +2304,12 @@ async function handleCpCommand(
         })
         .returning();
       await invalidateCatalogScopes(["cuts"]);
+      const allCuts = await db
+        .select({ text1: cuts.text1, text2: cuts.text2 })
+        .from(cuts)
+        .orderBy(desc(cuts.id))
+        .limit(500);
+      await broadcastCmd("shortcuts", allCuts);
       await savestate({
         state: "إظافة إختصار",
         topic: data.username,
@@ -2179,6 +2327,12 @@ async function handleCpCommand(
         const existing = await db.select().from(cuts).where(eq(cuts.id, id)).limit(1);
         await db.delete(cuts).where(eq(cuts.id, id));
         await invalidateCatalogScopes(["cuts"]);
+        const allCuts = await db
+          .select({ text1: cuts.text1, text2: cuts.text2 })
+          .from(cuts)
+          .orderBy(desc(cuts.id))
+          .limit(500);
+        await broadcastCmd("shortcuts", allCuts);
         if (existing[0]) {
           await savestate({
             state: "مسح إختصار",

@@ -28,6 +28,12 @@ const ALLOWED_TIKTOK_HOSTS = new Set<string>([
   "vt.tiktok.com",
 ]);
 
+// Public web-client key used by youtube.com itself. It is not a secret; the
+// InnerTube search endpoint is far faster and more reliable than scraping the
+// results HTML page (which can take 10s+ and frequently times out).
+const YOUTUBE_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+const YOUTUBE_INNERTUBE_CLIENT_VERSION = "2.20250101.00.00";
+
 function isAllowedTikTokHost(hostname: string): boolean {
   const normalized = String(hostname || "").trim().toLowerCase();
   if (!normalized) return false;
@@ -104,7 +110,91 @@ export class MediaResolver {
       if (apiResults.length > 0) return apiResults;
     }
 
+    const innertubeResults = await this.searchViaYoutubeInnertube(effectiveQuery, count, mode);
+    if (innertubeResults.length > 0) return innertubeResults;
+
     return this.searchViaYoutubeScrape(effectiveQuery, count, mode);
+  }
+
+  private async searchViaYoutubeInnertube(
+    query: string,
+    count: number,
+    mode: YoutubeSearchMode,
+  ): Promise<YoutubeSearchResultItem[]> {
+    try {
+      const body = {
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion: YOUTUBE_INNERTUBE_CLIENT_VERSION,
+            hl: "ar",
+            gl: "SA",
+          },
+        },
+        query,
+      };
+      const res = await fetch(
+        `https://www.youtube.com/youtubei/v1/search?key=${YOUTUBE_INNERTUBE_KEY}&prettyPrint=false`,
+        {
+          method: "POST",
+          signal: AbortSignal.timeout(9000),
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+            "accept-language": "ar,en;q=0.9",
+            origin: "https://www.youtube.com",
+            referer: "https://www.youtube.com/",
+            "user-agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "x-youtube-client-name": "1",
+            "x-youtube-client-version": YOUTUBE_INNERTUBE_CLIENT_VERSION,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!res.ok) return [];
+      const json = (await res.json()) as Record<string, unknown>;
+      const results: YoutubeSearchResultItem[] = [];
+      const seenIds = new Set<string>();
+
+      const walk = (node: unknown) => {
+        if (!node || typeof node !== "object" || results.length >= count) return;
+        if (Array.isArray(node)) {
+          for (const child of node) {
+            walk(child);
+            if (results.length >= count) break;
+          }
+          return;
+        }
+        const obj = node as Record<string, unknown>;
+        const renderer = obj.videoRenderer as Record<string, unknown> | undefined;
+        if (renderer && typeof renderer.videoId === "string" && !seenIds.has(renderer.videoId)) {
+          seenIds.add(renderer.videoId);
+          const titleRuns = ((renderer.title as Record<string, unknown>)?.runs as Array<{ text?: string }>) || [];
+          const title = titleRuns.map((r) => r.text || "").join("") || "YouTube Video";
+          const ownerRuns =
+            ((renderer.ownerText as Record<string, unknown>)?.runs as Array<{ text?: string }>) || [];
+          const channelTitle = ownerRuns.map((r) => r.text || "").join("");
+          results.push({
+            id: renderer.videoId,
+            title,
+            channelTitle,
+            thumbnail: `https://i.ytimg.com/vi/${renderer.videoId}/hqdefault.jpg`,
+            isShort: mode === "shorts",
+          });
+          return;
+        }
+        for (const val of Object.values(obj)) {
+          walk(val);
+          if (results.length >= count) break;
+        }
+      };
+
+      walk(json);
+      return results.slice(0, count);
+    } catch {
+      return [];
+    }
   }
 
   private async searchViaYoutubeApi(
@@ -167,7 +257,7 @@ export class MediaResolver {
     try {
       const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=ar&gl=SA`;
       const res = await fetch(searchUrl, {
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(15000),
         headers: {
           "user-agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",

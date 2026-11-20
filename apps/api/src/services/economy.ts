@@ -28,7 +28,6 @@ import {
   isUnifiedEconomyError,
 } from "@newchat/db";
 import {
-  GIFT_PLATFORM_FEE_PERCENT,
   SITE_MASTER_WALLET_SITE_ID,
   TOPUP_PENDING_EXPIRY_MS,
 } from "@newchat/shared";
@@ -2636,10 +2635,10 @@ export async function transferGiftCoinsAtomic(
   }
 
   const safeGiftCoin = Math.max(1, Number.parseInt(String(giftCoin), 10) || 1);
-  const safeQuantity = Math.max(1, Number.parseInt(String(quantity), 10) || 1);
-  const totalGiftCoin = safeGiftCoin * safeQuantity;
-  const platformFeeEstimated = Math.floor((totalGiftCoin * GIFT_PLATFORM_FEE_PERCENT) / 100);
-  const receiverCoinEstimated = Math.max(0, totalGiftCoin - platformFeeEstimated);
+  const safeQuantity = Number(quantity);
+  if (!Number.isSafeInteger(safeQuantity) || safeQuantity < 1 || safeQuantity > 100) {
+    throw new EconomyError("INVALID_QUANTITY");
+  }
   const ridPart = requestMeta.requestId ? ` rid=${requestMeta.requestId}` : "";
 
   try {
@@ -2654,7 +2653,7 @@ export async function transferGiftCoinsAtomic(
       unitCoin: safeGiftCoin,
       quantity: safeQuantity,
       noteSender: `gift to #${receiverIdreg} qty=${safeQuantity}${ridPart}`,
-      noteReceiver: `gift from #${senderIdreg} qty=${safeQuantity} recv=${receiverCoinEstimated} fee=${platformFeeEstimated}${ridPart}`,
+      noteReceiver: `gift from #${senderIdreg} qty=${safeQuantity}${ridPart}`,
       isOnlineTarget: false,
       sourceType: "api",
     });
@@ -2668,6 +2667,7 @@ export async function transferGiftCoinsAtomic(
       totalGiftCoin: res.totalCoin,
       receiverGiftCoin: res.receiverCoin,
       platformFeeCoin: res.platformFee,
+      hostingFeeCoin: res.hostingFee,
       senderUid: res.senderUid,
       receiverUid: res.receiverUid,
     };
@@ -2689,8 +2689,10 @@ export async function addSecretCoinsAtomic(
   const targetIdreg =
     Number.parseInt(String(targetUser?.idreg || "").replace(/^#/, ""), 10) || 0;
   if (targetIdreg < 1) throw new EconomyError("TARGET_NOT_FOUND");
-  const delta = Number.parseInt(String(amountRaw || "0"), 10) || 0;
-  if (delta < 1) throw new EconomyError("INVALID_AMOUNT");
+  const delta = Number(amountRaw);
+  if (!Number.isSafeInteger(delta) || delta < 1 || delta > 1_000_000) {
+    throw new EconomyError("INVALID_AMOUNT");
+  }
 
   const txid = makeCoinTxId("secret");
   const { db } = getDb();

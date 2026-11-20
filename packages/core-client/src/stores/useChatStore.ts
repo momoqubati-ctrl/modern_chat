@@ -16,6 +16,7 @@ import {
   type UserNoteRecord,
   type NoteCommentRecord,
   type PublishNotePayload,
+  applyTextShortcuts,
   sortOnlineSnapshots,
 } from "@newchat/shared";
 import { type BootstrapSiteConfig, NewChatApiClient } from "../apiClient.js";
@@ -974,6 +975,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("cover", (d) => Array.isArray(d) && set({ covers: d }));
     socketClient.onCmd("room_badges", (d) => Array.isArray(d) && set({ roomBadges: d }));
     socketClient.onCmd("site_badges", (d) => Array.isArray(d) && set({ siteBadges: d }));
+    socketClient.onCmd("shortcuts", (d) => {
+      if (Array.isArray(d)) {
+        const valid = d
+          .map((x: any) => ({
+            text1: String(x.text1 ?? x.name ?? "").trim(),
+            text2: String(x.text2 ?? x.value ?? ""),
+          }))
+          .filter((x: any) => x.text1.length > 0);
+        set({ shortcuts: valid });
+      }
+    });
     socketClient.onCmd("mic_provider", (data) => {
       if (!data || typeof data !== "object") return;
       const nextProvider = String((data as { micProvider?: unknown; provider?: unknown }).micProvider ?? (data as { provider?: unknown }).provider ?? "")
@@ -1982,10 +1994,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!trimmed && !opts.file) return;
 
     const state = get();
+    const expanded = applyTextShortcuts(trimmed, state.shortcuts);
     const cid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Server path is ALWAYS the source of truth — broadcasting/order is untouched.
-    socketClient?.sendRoomMessage(trimmed, { ...opts, cid });
+    socketClient?.sendRoomMessage(expanded, { ...opts, cid });
 
     // "local" rooms only: show the bubble instantly; the server echo replaces it.
     const room = state.rooms.find((r) => r.id === state.currentRoomId);
@@ -2000,7 +2013,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       uid: me.uid || me.id,
       lid: me.lid,
       topic: me.topic,
-      msg: trimmed,
+      msg: expanded,
       pic: me.pic,
       power: me.power,
       bg: me.bg,
@@ -2054,7 +2067,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendWallPost: (msg, opts) => {
     const trimmed = msg.trim();
     if (!trimmed && !opts?.link && !opts?.pic) return;
-    socketClient?.sendWallPost(trimmed, opts);
+    const expanded = applyTextShortcuts(trimmed, get().shortcuts);
+    socketClient?.sendWallPost(expanded, opts);
   },
 
   deleteWallPost: (bid) => {
@@ -2064,7 +2078,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   commentWallPost: (bid, msg, replyToCid) => {
     const trimmed = msg.trim();
     if (!trimmed) return;
-    socketClient?.commentWallPost(bid, trimmed, replyToCid);
+    const expanded = applyTextShortcuts(trimmed, get().shortcuts);
+    socketClient?.commentWallPost(bid, expanded, replyToCid);
   },
 
   likeWallPost: (bid, state = 1) => {
@@ -2080,7 +2095,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().pushNotice("المستخدم غير متصل بالانترنت في الوقت الحالي", { force: 1 });
       return;
     }
-    socketClient?.sendPrivateMessage(peer.socketId, trimmed, opts);
+    const expanded = applyTextShortcuts(trimmed, get().shortcuts);
+    socketClient?.sendPrivateMessage(peer.socketId, expanded, opts);
     set((s) => {
       const list = s.pmThreads[peer.uid] ?? [];
       return {
@@ -2094,7 +2110,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               to: peer.socketId,
               uid: peer.uid,
               topic: me?.topic || "أنا",
-              msg: trimmed,
+              msg: expanded,
               ts: Date.now(),
               pic: me?.pic,
               file: opts?.file,
@@ -2124,7 +2140,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendPublicAnnouncement: (msg, hideSender = false) => {
     const trimmed = msg.trim();
     if (!trimmed) return;
-    socketClient?.sendPublicAnnouncement(trimmed, hideSender);
+    const expanded = applyTextShortcuts(trimmed, get().shortcuts);
+    socketClient?.sendPublicAnnouncement(expanded, hideSender);
   },
 
   sendVoiceNote: (audioBase64OrDataUrl, mime, targetSocketId) => {
@@ -2157,7 +2174,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setStatusMessage: (msg, targetSocketId) => {
-    socketClient?.setStatusMessage(msg, targetSocketId);
+    const expanded = applyTextShortcuts(String(msg || "").trim(), get().shortcuts);
+    socketClient?.setStatusMessage(expanded, targetSocketId);
   },
 
   setSiteBadge: (badgeId, targetSocketId) => {

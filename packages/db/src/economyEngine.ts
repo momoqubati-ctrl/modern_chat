@@ -4,13 +4,24 @@ import {
   users,
   coin_ledger,
   gift_notifications,
+  gift_fee_slabs,
+  gift_settings,
   site_master_wallet,
   site_master_wallet_ledger,
+  hosting_owner_wallet,
+  hosting_owner_wallet_ledger,
 } from "./schema/index.js";
 import { eq, or, asc, sql } from "drizzle-orm";
+import { getRedis } from "./redis.js";
 
 export const SITE_MASTER_WALLET_SITE_ID = 1;
-export const GIFT_PLATFORM_FEE_PERCENT = 40;
+const GIFT_FEE_SLABS_CACHE_KEY = "newchat:gift:fee-slabs:v1";
+const GIFT_SETTINGS_CACHE_KEY = "newchat:gift:settings:v1";
+
+function giftSettingDefault(name: string, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(process.env[name] || "", 10);
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
 
 export class UnifiedEconomyError extends Error {
   code: string;
@@ -31,6 +42,172 @@ export function isUnifiedEconomyError(err: unknown, code?: string): err is Unifi
   return code ? e.code === code : true;
 }
 
+export interface GiftFeeSlab {
+  id: number;
+  slab_min_coin: number;
+  slab_max_coin: number | null;
+  platform_fee_bps: number;
+  is_active: boolean;
+}
+
+export interface GiftSystemSettings {
+  maxQty: number;
+  rateLimitMax: number;
+  rateLimitWindowMs: number;
+  giftEnabled: boolean;
+}
+
+const DEFAULT_GIFT_SETTINGS: GiftSystemSettings = {
+  maxQty: giftSettingDefault("GIFT_DEFAULT_MAX_QTY", 100, 1, 100),
+  rateLimitMax: giftSettingDefault("GIFT_DEFAULT_RATE_LIMIT_MAX", 6, 1, 100),
+  rateLimitWindowMs: giftSettingDefault("GIFT_DEFAULT_RATE_LIMIT_WINDOW_MS", 15_000, 1000, 60_000),
+  giftEnabled: true,
+};
+
+async function readGiftCache(key: string): Promise<string | null> {
+  try {
+    return await getRedis().get(key);
+  } catch (err) {
+    console.warn("[Gift] Redis cache read failed; using PostgreSQL:", err);
+    return null;
+  }
+}
+
+async function writeGiftCache(key: string, value: string): Promise<void> {
+  try {
+    await getRedis().set(key, value, "EX", 60);
+  } catch (err) {
+    console.warn("[Gift] Redis cache write failed:", err);
+  }
+}
+
+export async function invalidateGiftConfigCache(): Promise<void> {
+  try {
+    await getRedis().del(GIFT_FEE_SLABS_CACHE_KEY, GIFT_SETTINGS_CACHE_KEY);
+  } catch (err) {
+    console.warn("[Gift] Redis cache invalidation failed:", err);
+  }
+}
+
+export async function loadGiftFeeSlabs(): Promise<GiftFeeSlab[]> {
+  const cached = await readGiftCache(GIFT_FEE_SLABS_CACHE_KEY);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached) as GiftFeeSlab[];
+      if (Array.isArray(parsed)) return parsed;
+    } catch (err) {
+      console.warn("[Gift] Invalid fee-slab cache; refreshing from PostgreSQL:", err);
+    }
+  }
+
+  const { db } = getDb();
+  const rows = await db
+    .select()
+    .from(gift_fee_slabs)
+    .where(eq(gift_fee_slabs.is_active, true))
+    .orderBy(asc(gift_fee_slabs.slab_min_coin));
+  const slabs = rows.map((row) => ({
+    id: Number(row.id),
+    slab_min_coin: Number(row.slab_min_coin),
+    slab_max_coin: row.slab_max_coin === null ? null : Number(row.slab_max_coin),
+    platform_fee_bps: Number(row.platform_fee_bps),
+    is_active: Boolean(row.is_active),
+  }));
+  await writeGiftCache(GIFT_FEE_SLABS_CACHE_KEY, JSON.stringify(slabs));
+  return slabs;
+}
+
+export async function loadGiftSettings(): Promise<GiftSystemSettings> {
+  const cached = await readGiftCache(GIFT_SETTINGS_CACHE_KEY);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached) as GiftSystemSettings;
+      if (
+        Number.isSafeInteger(parsed.maxQty) &&
+        parsed.maxQty >= 1 &&
+        parsed.maxQty <= 100 &&
+        Number.isSafeInteger(parsed.rateLimitMax) &&
+        parsed.rateLimitMax >= 1 &&
+        parsed.rateLimitMax <= 100 &&
+        Number.isSafeInteger(parsed.rateLimitWindowMs) &&
+        parsed.rateLimitWindowMs >= 1000 &&
+        parsed.rateLimitWindowMs <= 60_000 &&
+        typeof parsed.giftEnabled === "boolean"
+      ) {
+        return parsed;
+      }
+    } catch (err) {
+      console.warn("[Gift] Invalid settings cache; refreshing from PostgreSQL:", err);
+    }
+  }
+
+  const { db } = getDb();
+  const rows = await db.select().from(gift_settings);
+  const values = new Map(rows.map((row) => [row.key, row.value]));
+  const settings = {
+    maxQty: Number(values.get("max_qty") ?? DEFAULT_GIFT_SETTINGS.maxQty),
+    rateLimitMax: Number(values.get("rate_limit_max") ?? DEFAULT_GIFT_SETTINGS.rateLimitMax),
+    rateLimitWindowMs: Number(
+      values.get("rate_limit_window_ms") ?? DEFAULT_GIFT_SETTINGS.rateLimitWindowMs,
+    ),
+    giftEnabled: (values.get("gift_enabled") ?? "true") === "true",
+  };
+  if (
+    !Number.isInteger(settings.maxQty) ||
+    settings.maxQty < 1 ||
+    settings.maxQty > 100 ||
+    !Number.isInteger(settings.rateLimitMax) ||
+    settings.rateLimitMax < 1 ||
+    settings.rateLimitMax > 100 ||
+    !Number.isInteger(settings.rateLimitWindowMs) ||
+    settings.rateLimitWindowMs < 1000 ||
+    settings.rateLimitWindowMs > 60_000
+  ) {
+    throw new UnifiedEconomyError("INVALID_GIFT_SETTINGS", "إعدادات الهدايا غير صالحة");
+  }
+  await writeGiftCache(GIFT_SETTINGS_CACHE_KEY, JSON.stringify(settings));
+  return settings;
+}
+
+export function calculateGiftFees(
+  totalCoin: number,
+  slabs: GiftFeeSlab[],
+  hostingFeePct: number,
+): { platformFee: number; hostingFee: number; receiverNet: number } {
+  if (!Number.isSafeInteger(totalCoin) || totalCoin < 1) {
+    throw new UnifiedEconomyError("INVALID_GIFT_AMOUNT", "قيمة الهدية غير صالحة");
+  }
+  if (!Number.isFinite(hostingFeePct) || hostingFeePct < 0 || hostingFeePct > 50) {
+    throw new UnifiedEconomyError("INVALID_HOSTING_FEE", "إعداد رسوم الاستضافة غير صالح");
+  }
+
+  const matches = slabs.filter(
+    (slab) =>
+      slab.is_active &&
+      totalCoin >= slab.slab_min_coin &&
+      (slab.slab_max_coin === null || totalCoin <= slab.slab_max_coin),
+  );
+  if (matches.length !== 1) {
+    throw new UnifiedEconomyError("GIFT_FEE_SLAB_NOT_FOUND", "لا توجد شريحة رسوم صالحة لهذه الهدية");
+  }
+  const platformFee = Math.floor((totalCoin * matches[0]!.platform_fee_bps) / 10_000);
+  const hostingFee = Math.floor((totalCoin * hostingFeePct) / 100);
+  return {
+    platformFee,
+    hostingFee,
+    receiverNet: totalCoin - platformFee - hostingFee,
+  };
+}
+
+function getHostingFeePercent(): number {
+  const raw = process.env.HOSTING_FEE_PERCENT?.trim();
+  const percent = raw ? Number(raw) : 10;
+  if (!Number.isFinite(percent) || percent < 0 || percent > 50) {
+    throw new UnifiedEconomyError("INVALID_HOSTING_FEE", "إعداد رسوم الاستضافة غير صالح");
+  }
+  return percent;
+}
+
 export function makeCoinTxId(prefix = "gift"): string {
   return `${String(prefix || "gift")}_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
 }
@@ -45,7 +222,6 @@ export interface UnifiedGiftTransferInput {
   giftFile: string;
   unitCoin: number;
   quantity?: number;
-  platformFeePercent?: number;
   txid?: string;
   noteSender?: string;
   noteReceiver?: string;
@@ -71,6 +247,7 @@ export interface UnifiedGiftTransferResult {
   totalCoin: number;
   receiverCoin: number;
   platformFee: number;
+  hostingFee: number;
   senderUid: string;
   senderIdreg: number;
   receiverUid: string;
@@ -112,7 +289,7 @@ export async function executeUnifiedGiftTransfer(
   }
 
   const rawQuantity = Number(input.quantity ?? 1);
-  if (!Number.isFinite(rawQuantity) || !Number.isInteger(rawQuantity) || rawQuantity < 1 || rawQuantity > 1000) {
+  if (!Number.isFinite(rawQuantity) || !Number.isInteger(rawQuantity) || rawQuantity < 1 || rawQuantity > 100) {
     throw new UnifiedEconomyError("INVALID_QUANTITY", "كمية الهدية غير صالحة");
   }
   const quantity = rawQuantity;
@@ -123,14 +300,16 @@ export async function executeUnifiedGiftTransfer(
   }
   const unitCoin = rawUnitCoin;
 
-  const feePercent =
-    typeof input.platformFeePercent === "number" && Number.isFinite(input.platformFeePercent)
-      ? Math.max(0, Math.min(100, input.platformFeePercent))
-      : GIFT_PLATFORM_FEE_PERCENT;
-
   const totalCoin = unitCoin * quantity;
-  const platformFee = Math.floor((totalCoin * feePercent) / 100);
-  const receiverCoin = Math.max(0, totalCoin - platformFee);
+  if (!Number.isSafeInteger(totalCoin)) {
+    throw new UnifiedEconomyError("INVALID_GIFT_AMOUNT", "قيمة الهدية غير صالحة");
+  }
+  const fees = calculateGiftFees(totalCoin, await loadGiftFeeSlabs(), getHostingFeePercent());
+  if (fees.receiverNet < 1) {
+    throw new UnifiedEconomyError("GIFT_FEES_TOO_HIGH", "قيمة الهدية أقل من الرسوم المطبقة");
+  }
+  const { platformFee, hostingFee } = fees;
+  const receiverCoin = fees.receiverNet;
   const txid = input.txid ? String(input.txid).trim() : makeCoinTxId("gift");
 
   // Deterministic topological order for locking users (avoids deadlocks between concurrent transfers)
@@ -141,6 +320,7 @@ export async function executeUnifiedGiftTransfer(
     return await db.transaction(async (tx) => {
       // 0. Set transaction-local lock timeout (2500ms) to prevent infinite lock waits
       await tx.execute(sql`SET LOCAL lock_timeout = '2500ms'`);
+      await tx.execute(sql`SET LOCAL statement_timeout = '5000ms'`);
 
       // 0.1 If idempotencyContext is provided, lock and verify idempotency record inside transaction
       if (input.idempotencyContext) {
@@ -237,7 +417,7 @@ export async function executeUnifiedGiftTransfer(
       const nextGiftsCount = Math.max(0, Number(receiverRow.gifts_received_count || 0)) + quantity;
       const cleanGiftFile = input.giftFile.replace(/^\/?gifts_git\//, "");
 
-      // 4. Update balances and receiver icon / count
+      // 4. Update balances and receiver gifts count (the receiver's gift icon is never altered by gifts)
       await tx
         .update(users)
         .set({ coins: senderAfter })
@@ -248,7 +428,6 @@ export async function executeUnifiedGiftTransfer(
         .set({
           coins: receiverAfter,
           gifts_received_count: nextGiftsCount,
-          gift_ico: `/gifts_git/${cleanGiftFile}`,
         })
         .where(eq(users.idreg, receiverIdreg));
 
@@ -344,6 +523,46 @@ export async function executeUnifiedGiftTransfer(
         });
       }
 
+      if (hostingFee > 0) {
+        await tx
+          .insert(hosting_owner_wallet)
+          .values({
+            id: 1,
+            balance_coins: 0,
+            status: "active",
+            created_at: now,
+            updated_at: now,
+          })
+          .onConflictDoNothing();
+
+        const ownerWalletRes = await tx.execute(
+          sql`SELECT balance_coins FROM hosting_owner_wallet WHERE id = 1 FOR UPDATE`,
+        );
+        const ownerBefore = Math.max(
+          0,
+          Number(
+            (ownerWalletRes.rows[0] as { balance_coins: number | string } | undefined)
+              ?.balance_coins || 0,
+          ),
+        );
+        const ownerAfter = ownerBefore + hostingFee;
+        await tx
+          .update(hosting_owner_wallet)
+          .set({ balance_coins: ownerAfter, updated_at: now })
+          .where(eq(hosting_owner_wallet.id, 1));
+        await tx.insert(hosting_owner_wallet_ledger).values({
+          txid,
+          event_type: "gift_hosting_fee",
+          amount: hostingFee,
+          before_balance: ownerBefore,
+          after_balance: ownerAfter,
+          reference_table: "gift_notifications",
+          reference_id: 0,
+          note: `Gift ${cleanGiftFile} x${quantity}`,
+          created_at: now,
+        });
+      }
+
       // 7. Insert gift_notifications
       const isOnline = Boolean(input.isOnlineTarget);
       await tx.insert(gift_notifications).values({
@@ -373,6 +592,7 @@ export async function executeUnifiedGiftTransfer(
         totalCoin,
         receiverCoin,
         platformFee,
+        hostingFee,
         senderUid: actorUid,
         senderIdreg,
         receiverUid: targetUid,

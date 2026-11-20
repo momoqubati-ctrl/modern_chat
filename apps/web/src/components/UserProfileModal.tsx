@@ -41,6 +41,7 @@ import { canModerateUser, hasRoleFlag, resolveMemberRole } from "../lib/permissi
 import { getUserCover, getUserTheme, resolvePowerIco } from "../lib/userCosmetics.js";
 import { MemberAvatar, MemberBadgesInline, MemberPrefixIcons, getStatusDotClass, getStatusLabel } from "./MemberAvatar.js";
 import { VerifiedBadge, isUserVerified } from "./VerifiedBadge.js";
+import { SafeRichText } from "../lib/richContent.js";
 import type { MailRecipientDraft } from "./InternalMailPanel.js";
 
 interface UserProfileModalProps {
@@ -413,7 +414,9 @@ export function UserProfileModal({
               </div>
 
               {/* Status Message */}
-              <p dir="auto" className="text-xs opacity-75 mt-0.5 line-clamp-2 text-left">{liveUser.msg || "لا توجد حالة حالياً"}</p>
+              <div dir="auto" className="text-xs opacity-75 mt-0.5 line-clamp-2 text-left">
+                {liveUser.msg ? <SafeRichText text={liveUser.msg} /> : "لا توجد حالة حالياً"}
+              </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] opacity-65">
                 <span>{getStatusLabel(liveUser.stat, liveUser.offline)}</span>
                 {liveUser.muted && (

@@ -38,7 +38,7 @@ import {
 import { gatewayConfig } from "../config.js";
 import { safeJsonParse } from "../lib/socketUtils.js";
 import { FilterService, getFilterService } from "./filterService.js";
-import { ShortcutService, getShortcutService } from "./shortcutService.js";
+import { ShortcutService, getShortcutService, type ShortcutRule } from "./shortcutService.js";
 import type {
   BanRuleRow,
   GatewayOwnerState,
@@ -500,6 +500,10 @@ export class CatalogStore {
 
   getProhibitedWordRules(): ProhibitedWordRule[] {
     return this.prohibitedWords;
+  }
+
+  getShortcutRules(): ShortcutRule[] {
+    return this.shortcutService.getRules();
   }
 
   replaceShortcuts(text: string): string {

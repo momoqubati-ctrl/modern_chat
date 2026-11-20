@@ -1,4 +1,5 @@
 import {
+  Camera,
   Coins,
   Dices,
   DoorOpen,
@@ -172,6 +173,20 @@ export function TopHeaderBar({
               {unreadMailCount}
             </span>
           )}
+        </button>
+
+        {/* Instagram Feed Button */}
+        <button
+          type="button"
+          onClick={() => onNavigate?.("/feed")}
+          title="يوميات إنستغرام (Instagram Feed)"
+          className={`p-2 rounded-xl border transition ${
+            dark
+              ? "border-slate-800 hover:bg-slate-800 text-rose-400 hover:text-rose-300"
+              : "border-slate-200 hover:bg-slate-100 text-rose-500 hover:text-rose-600"
+          }`}
+        >
+          <Camera className="w-4 h-4" />
         </button>
 
         {/* Carrom Button */}
