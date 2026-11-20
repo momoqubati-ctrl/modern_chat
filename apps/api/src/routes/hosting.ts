@@ -23,7 +23,7 @@ function getPortalPath(): string | null {
   const raw = apiConfig.hostingPortalPath.trim().replace(/\/+$/, "");
   if (!raw) return null;
   if (!/^\/[A-Za-z0-9_-]{20,128}(?:\/[A-Za-z0-9_-]{1,64})*$/.test(raw)) {
-    throw new Error("HOSTING_PORTAL_PATH must be a long, URL-safe path and cannot be '/'");
+    return null;
   }
   return raw;
 }
@@ -82,18 +82,18 @@ function unauthorized(reply: FastifyReply) {
 export async function registerHostingRoutes(app: FastifyInstance): Promise<void> {
   const portalPath = getPortalPath();
   if (!portalPath) {
-    if (apiConfig.nodeEnv === "production") {
-      throw new Error("HOSTING_PORTAL_PATH is required in production");
-    }
-    app.log.warn("Hosting owner portal is disabled because HOSTING_PORTAL_PATH is not configured");
+    app.log.warn("Hosting owner portal is disabled because HOSTING_PORTAL_PATH is not configured or invalid");
     return;
   }
 
   const hasCredentials =
     Boolean(apiConfig.hostingOwnerUsername) &&
     /^\$2[aby]\$\d{2}\$/.test(apiConfig.hostingOwnerPasswordHash);
-  if (!hasCredentials && apiConfig.nodeEnv === "production") {
-    throw new Error("HOSTING_OWNER_USERNAME and a bcrypt HOSTING_OWNER_PASSWORD_HASH are required");
+  if (!hasCredentials) {
+    app.log.warn(
+      "Hosting owner portal is disabled because HOSTING_OWNER_USERNAME or bcrypt HOSTING_OWNER_PASSWORD_HASH is missing",
+    );
+    return;
   }
 
   await ensureGiftSystemTablesExist();
