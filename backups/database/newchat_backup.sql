@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict S3d3g3lvjLmERzpkpsj34uefQfqNkf5TCkx6HUCSSShp2eH4d8BbEs14h44e5IH
+\restrict bFgvp9an4WFXLKH2QSebKM2kG2B4iwxmwXbw4eixSeBGaKUS5mW2zD1K2Tawl5R
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.4
@@ -22,8 +22,18 @@ SET row_security = off;
 DROP INDEX IF EXISTS public.uniq_users_username;
 DROP INDEX IF EXISTS public.uniq_topup_orders_order_no;
 DROP INDEX IF EXISTS public.uniq_site_master_wallet_site;
+DROP INDEX IF EXISTS public.uniq_site_funding_idempotency;
 DROP INDEX IF EXISTS public.uniq_room_welcome_visit;
+DROP INDEX IF EXISTS public.uniq_idem_txid;
+DROP INDEX IF EXISTS public.uniq_hosting_owner_wallet_ledger_txid;
+DROP INDEX IF EXISTS public.uniq_gift_fee_slabs_min;
 DROP INDEX IF EXISTS public.uniq_followers_pair;
+DROP INDEX IF EXISTS public.uniq_feed_posts_post_id;
+DROP INDEX IF EXISTS public.uniq_feed_post_likes;
+DROP INDEX IF EXISTS public.uniq_feed_comments_id;
+DROP INDEX IF EXISTS public.uniq_feed_comment_likes;
+DROP INDEX IF EXISTS public.uniq_feed_bookmarks;
+DROP INDEX IF EXISTS public.uniq_coin_ledger_txid_event_user;
 DROP INDEX IF EXISTS public.uniq_agents_username;
 DROP INDEX IF EXISTS public.uniq_agents_code;
 DROP INDEX IF EXISTS public.uniq_agent_wallets_agent;
@@ -69,6 +79,7 @@ DROP INDEX IF EXISTS public.idx_smwl_txid;
 DROP INDEX IF EXISTS public.idx_smwl_site;
 DROP INDEX IF EXISTS public.idx_site_ids;
 DROP INDEX IF EXISTS public.idx_site_host;
+DROP INDEX IF EXISTS public.idx_site_funding_created_at;
 DROP INDEX IF EXISTS public.idx_rooms_topic;
 DROP INDEX IF EXISTS public.idx_rooms_owner;
 DROP INDEX IF EXISTS public.idx_rooms_id;
@@ -96,8 +107,10 @@ DROP INDEX IF EXISTS public.idx_logs_state;
 DROP INDEX IF EXISTS public.idx_logs_lookup;
 DROP INDEX IF EXISTS public.idx_logs_ip;
 DROP INDEX IF EXISTS public.idx_intromsg_category;
+DROP INDEX IF EXISTS public.idx_idem_status_lease;
 DROP INDEX IF EXISTS public.idx_hosts_setting;
 DROP INDEX IF EXISTS public.idx_hosts_hostname;
+DROP INDEX IF EXISTS public.idx_hosting_owner_wallet_ledger_created_at;
 DROP INDEX IF EXISTS public.idx_histletter_topic;
 DROP INDEX IF EXISTS public.idx_histletter_ip;
 DROP INDEX IF EXISTS public.idx_gift_notif_txid;
@@ -105,6 +118,15 @@ DROP INDEX IF EXISTS public.idx_gift_notif_to_uid;
 DROP INDEX IF EXISTS public.idx_gift_notif_created_at;
 DROP INDEX IF EXISTS public.idx_followers_following;
 DROP INDEX IF EXISTS public.idx_followers_follower;
+DROP INDEX IF EXISTS public.idx_feed_posts_created_at;
+DROP INDEX IF EXISTS public.idx_feed_posts_author;
+DROP INDEX IF EXISTS public.idx_feed_post_likes_user;
+DROP INDEX IF EXISTS public.idx_feed_media_post_sort;
+DROP INDEX IF EXISTS public.idx_feed_comments_post_created;
+DROP INDEX IF EXISTS public.idx_feed_comments_parent;
+DROP INDEX IF EXISTS public.idx_feed_comments_author;
+DROP INDEX IF EXISTS public.idx_feed_comment_likes_user;
+DROP INDEX IF EXISTS public.idx_feed_bookmarks_user;
 DROP INDEX IF EXISTS public.idx_cuts_text1;
 DROP INDEX IF EXISTS public.idx_cp_country;
 DROP INDEX IF EXISTS public.idx_cp_active_sort;
@@ -146,11 +168,13 @@ ALTER TABLE IF EXISTS ONLY public.stats DROP CONSTRAINT IF EXISTS stats_pkey;
 ALTER TABLE IF EXISTS ONLY public.site DROP CONSTRAINT IF EXISTS site_pkey;
 ALTER TABLE IF EXISTS ONLY public.site_master_wallet DROP CONSTRAINT IF EXISTS site_master_wallet_pkey;
 ALTER TABLE IF EXISTS ONLY public.site_master_wallet_ledger DROP CONSTRAINT IF EXISTS site_master_wallet_ledger_pkey;
+ALTER TABLE IF EXISTS ONLY public.site_funding_log DROP CONSTRAINT IF EXISTS site_funding_log_pkey;
 ALTER TABLE IF EXISTS ONLY public.settings DROP CONSTRAINT IF EXISTS settings_pkey;
 ALTER TABLE IF EXISTS ONLY public.rooms DROP CONSTRAINT IF EXISTS rooms_pkey;
 ALTER TABLE IF EXISTS ONLY public.room_welcome_visits DROP CONSTRAINT IF EXISTS room_welcome_visits_pkey;
 ALTER TABLE IF EXISTS ONLY public.profile_visits DROP CONSTRAINT IF EXISTS profile_visits_pkey;
 ALTER TABLE IF EXISTS ONLY public.powers DROP CONSTRAINT IF EXISTS powers_pkey;
+ALTER TABLE IF EXISTS ONLY public.idempotency_records DROP CONSTRAINT IF EXISTS pk_idempotency_records;
 ALTER TABLE IF EXISTS ONLY public.owner DROP CONSTRAINT IF EXISTS owner_pkey;
 ALTER TABLE IF EXISTS ONLY public.owner_agent_transfers DROP CONSTRAINT IF EXISTS owner_agent_transfers_pkey;
 ALTER TABLE IF EXISTS ONLY public.notext DROP CONSTRAINT IF EXISTS notext_pkey;
@@ -162,9 +186,19 @@ ALTER TABLE IF EXISTS ONLY public.logs DROP CONSTRAINT IF EXISTS logs_pkey;
 ALTER TABLE IF EXISTS ONLY public.intromsg DROP CONSTRAINT IF EXISTS intromsg_pkey;
 ALTER TABLE IF EXISTS ONLY public.internal_mail DROP CONSTRAINT IF EXISTS internal_mail_pkey;
 ALTER TABLE IF EXISTS ONLY public.hosts DROP CONSTRAINT IF EXISTS hosts_pkey;
+ALTER TABLE IF EXISTS ONLY public.hosting_owner_wallet DROP CONSTRAINT IF EXISTS hosting_owner_wallet_pkey;
+ALTER TABLE IF EXISTS ONLY public.hosting_owner_wallet_ledger DROP CONSTRAINT IF EXISTS hosting_owner_wallet_ledger_pkey;
 ALTER TABLE IF EXISTS ONLY public.histletter DROP CONSTRAINT IF EXISTS histletter_pkey;
+ALTER TABLE IF EXISTS ONLY public.gift_settings DROP CONSTRAINT IF EXISTS gift_settings_pkey;
 ALTER TABLE IF EXISTS ONLY public.gift_notifications DROP CONSTRAINT IF EXISTS gift_notifications_pkey;
+ALTER TABLE IF EXISTS ONLY public.gift_fee_slabs DROP CONSTRAINT IF EXISTS gift_fee_slabs_pkey;
 ALTER TABLE IF EXISTS ONLY public.followers DROP CONSTRAINT IF EXISTS followers_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_posts DROP CONSTRAINT IF EXISTS feed_posts_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_post_media DROP CONSTRAINT IF EXISTS feed_post_media_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_post_likes DROP CONSTRAINT IF EXISTS feed_post_likes_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_comments DROP CONSTRAINT IF EXISTS feed_comments_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_comment_likes DROP CONSTRAINT IF EXISTS feed_comment_likes_pkey;
+ALTER TABLE IF EXISTS ONLY public.feed_bookmarks DROP CONSTRAINT IF EXISTS feed_bookmarks_pkey;
 ALTER TABLE IF EXISTS ONLY public.cuts DROP CONSTRAINT IF EXISTS cuts_pkey;
 ALTER TABLE IF EXISTS ONLY public.coin_packages DROP CONSTRAINT IF EXISTS coin_packages_pkey;
 ALTER TABLE IF EXISTS ONLY public.coin_ledger DROP CONSTRAINT IF EXISTS coin_ledger_pkey;
@@ -191,6 +225,7 @@ ALTER TABLE IF EXISTS public.storie ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.stats ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.site_master_wallet_ledger ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.site_master_wallet ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.site_funding_log ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.site ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.settings ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.rooms ALTER COLUMN idroom DROP DEFAULT;
@@ -208,9 +243,17 @@ ALTER TABLE IF EXISTS public.logs ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.intromsg ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.internal_mail ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.hosts ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.hosting_owner_wallet_ledger ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.histletter ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.gift_notifications ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.gift_fee_slabs ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.followers ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_posts ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_post_media ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_post_likes ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_comments ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_comment_likes ALTER COLUMN id DROP DEFAULT;
+ALTER TABLE IF EXISTS public.feed_bookmarks ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.cuts ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.coin_packages ALTER COLUMN id DROP DEFAULT;
 ALTER TABLE IF EXISTS public.coin_ledger ALTER COLUMN id DROP DEFAULT;
@@ -253,6 +296,8 @@ DROP TABLE IF EXISTS public.site_master_wallet_ledger;
 DROP SEQUENCE IF EXISTS public.site_master_wallet_id_seq;
 DROP TABLE IF EXISTS public.site_master_wallet;
 DROP SEQUENCE IF EXISTS public.site_id_seq;
+DROP SEQUENCE IF EXISTS public.site_funding_log_id_seq;
+DROP TABLE IF EXISTS public.site_funding_log;
 DROP TABLE IF EXISTS public.site;
 DROP SEQUENCE IF EXISTS public.settings_id_seq;
 DROP TABLE IF EXISTS public.settings;
@@ -284,14 +329,33 @@ DROP SEQUENCE IF EXISTS public.intromsg_id_seq;
 DROP TABLE IF EXISTS public.intromsg;
 DROP SEQUENCE IF EXISTS public.internal_mail_id_seq;
 DROP TABLE IF EXISTS public.internal_mail;
+DROP TABLE IF EXISTS public.idempotency_records;
 DROP SEQUENCE IF EXISTS public.hosts_id_seq;
 DROP TABLE IF EXISTS public.hosts;
+DROP SEQUENCE IF EXISTS public.hosting_owner_wallet_ledger_id_seq;
+DROP TABLE IF EXISTS public.hosting_owner_wallet_ledger;
+DROP TABLE IF EXISTS public.hosting_owner_wallet;
 DROP SEQUENCE IF EXISTS public.histletter_id_seq;
 DROP TABLE IF EXISTS public.histletter;
+DROP TABLE IF EXISTS public.gift_settings;
 DROP SEQUENCE IF EXISTS public.gift_notifications_id_seq;
 DROP TABLE IF EXISTS public.gift_notifications;
+DROP SEQUENCE IF EXISTS public.gift_fee_slabs_id_seq;
+DROP TABLE IF EXISTS public.gift_fee_slabs;
 DROP SEQUENCE IF EXISTS public.followers_id_seq;
 DROP TABLE IF EXISTS public.followers;
+DROP SEQUENCE IF EXISTS public.feed_posts_id_seq;
+DROP TABLE IF EXISTS public.feed_posts;
+DROP SEQUENCE IF EXISTS public.feed_post_media_id_seq;
+DROP TABLE IF EXISTS public.feed_post_media;
+DROP SEQUENCE IF EXISTS public.feed_post_likes_id_seq;
+DROP TABLE IF EXISTS public.feed_post_likes;
+DROP SEQUENCE IF EXISTS public.feed_comments_id_seq;
+DROP TABLE IF EXISTS public.feed_comments;
+DROP SEQUENCE IF EXISTS public.feed_comment_likes_id_seq;
+DROP TABLE IF EXISTS public.feed_comment_likes;
+DROP SEQUENCE IF EXISTS public.feed_bookmarks_id_seq;
+DROP TABLE IF EXISTS public.feed_bookmarks;
 DROP SEQUENCE IF EXISTS public.cuts_id_seq;
 DROP TABLE IF EXISTS public.cuts;
 DROP SEQUENCE IF EXISTS public.coin_packages_id_seq;
@@ -733,6 +797,217 @@ ALTER SEQUENCE public.cuts_id_seq OWNED BY public.cuts.id;
 
 
 --
+-- Name: feed_bookmarks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_bookmarks (
+    id bigint NOT NULL,
+    post_id character varying(64) NOT NULL,
+    user_uid character varying(255) NOT NULL,
+    created_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_bookmarks_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_bookmarks_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_bookmarks_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_bookmarks_id_seq OWNED BY public.feed_bookmarks.id;
+
+
+--
+-- Name: feed_comment_likes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_comment_likes (
+    id bigint NOT NULL,
+    comment_id character varying(64) NOT NULL,
+    user_uid character varying(255) NOT NULL,
+    created_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_comment_likes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_comment_likes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_comment_likes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_comment_likes_id_seq OWNED BY public.feed_comment_likes.id;
+
+
+--
+-- Name: feed_comments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_comments (
+    id bigint NOT NULL,
+    comment_id character varying(64) NOT NULL,
+    post_id character varying(64) NOT NULL,
+    parent_comment_id character varying(64) DEFAULT ''::character varying,
+    reply_to_uid character varying(255) DEFAULT ''::character varying,
+    reply_to_username character varying(255) DEFAULT ''::character varying,
+    author_uid character varying(255) NOT NULL,
+    content text NOT NULL,
+    likes_count integer DEFAULT 0 NOT NULL,
+    replies_count integer DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_comments_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_comments_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_comments_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_comments_id_seq OWNED BY public.feed_comments.id;
+
+
+--
+-- Name: feed_post_likes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_post_likes (
+    id bigint NOT NULL,
+    post_id character varying(64) NOT NULL,
+    user_uid character varying(255) NOT NULL,
+    created_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_post_likes_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_post_likes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_post_likes_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_post_likes_id_seq OWNED BY public.feed_post_likes.id;
+
+
+--
+-- Name: feed_post_media; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_post_media (
+    id bigint NOT NULL,
+    post_id character varying(64) NOT NULL,
+    media_type character varying(32) DEFAULT 'image'::character varying NOT NULL,
+    url character varying(1024) NOT NULL,
+    thumbnail_url character varying(1024) DEFAULT ''::character varying,
+    width integer DEFAULT 0,
+    height integer DEFAULT 0,
+    duration integer DEFAULT 0,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_post_media_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_post_media_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_post_media_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_post_media_id_seq OWNED BY public.feed_post_media.id;
+
+
+--
+-- Name: feed_posts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.feed_posts (
+    id bigint NOT NULL,
+    post_id character varying(64) NOT NULL,
+    author_uid character varying(255) NOT NULL,
+    author_idreg integer DEFAULT 0,
+    caption text DEFAULT ''::text,
+    media_type character varying(32) DEFAULT 'image'::character varying NOT NULL,
+    music_title character varying(255) DEFAULT ''::character varying,
+    likes_count integer DEFAULT 0 NOT NULL,
+    comments_count integer DEFAULT 0 NOT NULL,
+    reposts_count integer DEFAULT 0 NOT NULL,
+    shares_count integer DEFAULT 0 NOT NULL,
+    views_count integer DEFAULT 0 NOT NULL,
+    visibility character varying(32) DEFAULT 'public'::character varying NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL
+);
+
+
+--
+-- Name: feed_posts_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.feed_posts_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: feed_posts_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.feed_posts_id_seq OWNED BY public.feed_posts.id;
+
+
+--
 -- Name: followers; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -762,6 +1037,42 @@ CREATE SEQUENCE public.followers_id_seq
 --
 
 ALTER SEQUENCE public.followers_id_seq OWNED BY public.followers.id;
+
+
+--
+-- Name: gift_fee_slabs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gift_fee_slabs (
+    id bigint NOT NULL,
+    slab_min_coin integer NOT NULL,
+    slab_max_coin integer,
+    platform_fee_bps smallint NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT chk_gift_fee_slabs_range CHECK (((slab_min_coin >= 1) AND ((slab_max_coin IS NULL) OR (slab_max_coin >= slab_min_coin)))),
+    CONSTRAINT gift_fee_slabs_platform_fee_bps_check CHECK (((platform_fee_bps >= 0) AND (platform_fee_bps <= 5000)))
+);
+
+
+--
+-- Name: gift_fee_slabs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.gift_fee_slabs_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: gift_fee_slabs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.gift_fee_slabs_id_seq OWNED BY public.gift_fee_slabs.id;
 
 
 --
@@ -805,6 +1116,18 @@ ALTER SEQUENCE public.gift_notifications_id_seq OWNED BY public.gift_notificatio
 
 
 --
+-- Name: gift_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.gift_settings (
+    key character varying(64) NOT NULL,
+    value text NOT NULL,
+    updated_at bigint NOT NULL,
+    updated_by integer
+);
+
+
+--
 -- Name: histletter; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -842,6 +1165,58 @@ ALTER SEQUENCE public.histletter_id_seq OWNED BY public.histletter.id;
 
 
 --
+-- Name: hosting_owner_wallet; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.hosting_owner_wallet (
+    id integer DEFAULT 1 NOT NULL,
+    balance_coins bigint DEFAULT 0 NOT NULL,
+    status character varying(32) DEFAULT 'active'::character varying NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT hosting_owner_wallet_id_check CHECK ((id = 1))
+);
+
+
+--
+-- Name: hosting_owner_wallet_ledger; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.hosting_owner_wallet_ledger (
+    id bigint NOT NULL,
+    txid character varying(128) NOT NULL,
+    event_type character varying(64) NOT NULL,
+    amount bigint NOT NULL,
+    before_balance bigint NOT NULL,
+    after_balance bigint NOT NULL,
+    reference_table character varying(128) DEFAULT ''::character varying,
+    reference_id bigint DEFAULT 0,
+    note text DEFAULT ''::text,
+    created_at bigint NOT NULL,
+    CONSTRAINT hosting_owner_wallet_ledger_amount_check CHECK ((amount > 0))
+);
+
+
+--
+-- Name: hosting_owner_wallet_ledger_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.hosting_owner_wallet_ledger_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: hosting_owner_wallet_ledger_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.hosting_owner_wallet_ledger_id_seq OWNED BY public.hosting_owner_wallet_ledger.id;
+
+
+--
 -- Name: hosts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -870,6 +1245,28 @@ CREATE SEQUENCE public.hosts_id_seq
 --
 
 ALTER SEQUENCE public.hosts_id_seq OWNED BY public.hosts.id;
+
+
+--
+-- Name: idempotency_records; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.idempotency_records (
+    user_uid character varying(255) NOT NULL,
+    idempotency_key character varying(128) NOT NULL,
+    source_type character varying(64) NOT NULL,
+    payload_hash character varying(128) NOT NULL,
+    status character varying(32) DEFAULT 'pending'::character varying NOT NULL,
+    owner_token character varying(64) NOT NULL,
+    lease_expires_at bigint NOT NULL,
+    locked_unit_coin bigint NOT NULL,
+    txid character varying(128) DEFAULT ''::character varying,
+    response_json text,
+    error_message text,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    CONSTRAINT chk_idem_status CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])))
+);
 
 
 --
@@ -1430,6 +1827,41 @@ CREATE TABLE public.site (
     ids integer,
     logo character varying(255)
 );
+
+
+--
+-- Name: site_funding_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.site_funding_log (
+    id bigint NOT NULL,
+    amount_coins bigint NOT NULL,
+    external_ref character varying(255) NOT NULL,
+    note text DEFAULT ''::text,
+    funded_by character varying(255) DEFAULT 'hosting_owner'::character varying NOT NULL,
+    idempotency_key character varying(128) NOT NULL,
+    created_at bigint NOT NULL,
+    CONSTRAINT site_funding_log_amount_coins_check CHECK ((amount_coins > 0))
+);
+
+
+--
+-- Name: site_funding_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.site_funding_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: site_funding_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.site_funding_log_id_seq OWNED BY public.site_funding_log.id;
 
 
 --
@@ -2150,10 +2582,59 @@ ALTER TABLE ONLY public.cuts ALTER COLUMN id SET DEFAULT nextval('public.cuts_id
 
 
 --
+-- Name: feed_bookmarks id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_bookmarks ALTER COLUMN id SET DEFAULT nextval('public.feed_bookmarks_id_seq'::regclass);
+
+
+--
+-- Name: feed_comment_likes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_comment_likes ALTER COLUMN id SET DEFAULT nextval('public.feed_comment_likes_id_seq'::regclass);
+
+
+--
+-- Name: feed_comments id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_comments ALTER COLUMN id SET DEFAULT nextval('public.feed_comments_id_seq'::regclass);
+
+
+--
+-- Name: feed_post_likes id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_post_likes ALTER COLUMN id SET DEFAULT nextval('public.feed_post_likes_id_seq'::regclass);
+
+
+--
+-- Name: feed_post_media id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_post_media ALTER COLUMN id SET DEFAULT nextval('public.feed_post_media_id_seq'::regclass);
+
+
+--
+-- Name: feed_posts id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_posts ALTER COLUMN id SET DEFAULT nextval('public.feed_posts_id_seq'::regclass);
+
+
+--
 -- Name: followers id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.followers ALTER COLUMN id SET DEFAULT nextval('public.followers_id_seq'::regclass);
+
+
+--
+-- Name: gift_fee_slabs id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_fee_slabs ALTER COLUMN id SET DEFAULT nextval('public.gift_fee_slabs_id_seq'::regclass);
 
 
 --
@@ -2168,6 +2649,13 @@ ALTER TABLE ONLY public.gift_notifications ALTER COLUMN id SET DEFAULT nextval('
 --
 
 ALTER TABLE ONLY public.histletter ALTER COLUMN id SET DEFAULT nextval('public.histletter_id_seq'::regclass);
+
+
+--
+-- Name: hosting_owner_wallet_ledger id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hosting_owner_wallet_ledger ALTER COLUMN id SET DEFAULT nextval('public.hosting_owner_wallet_ledger_id_seq'::regclass);
 
 
 --
@@ -2287,6 +2775,13 @@ ALTER TABLE ONLY public.settings ALTER COLUMN id SET DEFAULT nextval('public.set
 --
 
 ALTER TABLE ONLY public.site ALTER COLUMN id SET DEFAULT nextval('public.site_id_seq'::regclass);
+
+
+--
+-- Name: site_funding_log id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.site_funding_log ALTER COLUMN id SET DEFAULT nextval('public.site_funding_log_id_seq'::regclass);
 
 
 --
@@ -2423,7 +2918,7 @@ COPY public.agent_wallet_ledger (id, txid, agent_id, event_type, amount, before_
 --
 
 COPY public.agent_wallets (id, agent_id, balance_coins, reserved_coins, status, created_at, updated_at) FROM stdin;
-2	2	460410	0	active	1794591749353	1794620122040
+2	2	460410	0	active	1794591749353	1795041420093
 \.
 
 
@@ -2449,36 +2944,36 @@ COPY public.band (id, name_band, type, deccode, "decoderDans", device_band, ip_b
 --
 
 COPY public.bars (id, bcc, likes, bg, bid, lid, mcol, msg, pic, topic, ucol, uid) FROM stdin;
-100	[]	["1db82554e5a9437d67da6e:1","af9114346116b469bcd1deb3:2"]	#FFFFFF	gen5IXfeCCuNwg	ormtckbsh8x0plk7e45tggph562lufc	#000000	 السلام عليكم ورحمة الله وبركاتة  	pic.png	seohost	#000000	tamxbgxn7ds9shhxgzz665
-101	[]	["1db82554e5a9437d67da6e:2","af9114346116b469bcd1deb3:1"]	#FFFFFF	AWgBH5mwXNJtLb	ormtckbsh8x0plk7e45tggph562lufc	#000000	كيف الحال	pic.png	seohost	#000000	tamxbgxn7ds9shhxgzz665
-104	[{"cid":"fj1R3XfxjR","id":"3lHeem0BqdzvjRlwAAAQ","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ياسلام","ucol":"#000000","time":1794440857154}]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	99tv7FPZKrzTfT	867bc01476cd530af6d27b5bad66933	#000000	https://www.youtube.com/watch?v=enFeM1NXonA	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-106	[]	["1db82554e5a9437d67da6e:2"]	#FFFFFF	es3Zo7PBPstSDk	867bc01476cd530af6d27b5bad66933	#000000	&#x3C;div class="ssss">&#x3C;a href="/sendfile/1794442103026_b7f220.mp4" class="uplink">/sendfile/1794442103026_b7f220.mp4&#x3C;/a>&#x3C;/div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-110	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	EF4T0TVX4900HL	867bc01476cd530af6d27b5bad66933	#000000	 السلام عليكم ورحمة الله وبركاتة  	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-109	[{"cid":"EEv7RWK9DS","id":"oBf1VU-aYy7SzQ6MAAAF","uid":"tamxbgxn7ds9shhxgzz665","topic":"seohost","pic":"/pic/1794512127060_378568.jpg","msg":"سلام","ucol":"#000000","time":1794514661123}]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	YVeRbrvlkKmkt8	867bc01476cd530af6d27b5bad66933	#000000	سيشسي	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-111	[]	["1db82554e5a9437d67da6e:1","tamxbgxn7ds9shhxgzz665:2"]	#FFFFFF	9vp3FwvbNnyV8G	867bc01476cd530af6d27b5bad66933	#000000	سلام	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-105	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	y4KmczM0QtT5xj	867bc01476cd530af6d27b5bad66933	#000000	&#x3C;div class="ssss">&#x3C;a href="/sendfile/1794442090825_1d5a6a.jpg" class="uplink">/sendfile/1794442090825_1d5a6a.jpg&#x3C;/a>&#x3C;/div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-103	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	hD3iH4XUbTaTZk	ormtckbsh8x0plk7e45tggph562lufc	#000000	 السلام عليكم ورحمة الله وبركاتة  	pic.png	seohost	#000000	tamxbgxn7ds9shhxgzz665
+150	[]	[]	#FFFFFF	m9PKe02O9xS8R1	867bc01476cd530af6d27b5bad66933	#000000	السلام عليكم ورحمة الله وبركاتة  ف1	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+152	[]	[]	#FFFFFF	6fja9HvBhd90LI	867bc01476cd530af6d27b5bad66933	#000000	ف٩	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+141	[{"cid":"rdLGsUzoWD","id":"SJdesvZpGXFDA4-9AAAX","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ارحب","ucol":"#000000","time":1795038402484,"documents":true,"documentationc":true},{"cid":"D2lGvXtaxs","id":"9vhfnDXKZHT96iPDAAAK","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ف4","ucol":"#000000","time":1795133503681,"documents":true,"documentationc":true}]	["1db82554e5a9437d67da6e:1"]	#ffffff	0qXGx7DrxykPzr	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/sendfile/1795038354469_cda3d3.mp3" class="uplink">/sendfile/1795038354469_cda3d3.mp3</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+147	[]	[]	#FFFFFF	ZaS06DgTuCSLwm	867bc01476cd530af6d27b5bad66933	#000000	زءمسظ	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+148	[]	[]	#FFFFFF	f5d20yTl56Vs3O	867bc01476cd530af6d27b5bad66933	#000000	ف١	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+149	[]	[]	#FFFFFF	E8FP4tRirYZCUw	867bc01476cd530af6d27b5bad66933	#000000	ف١  منورين ف٢	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+151	[]	[]	#FFFFFF	Q6K4mdIFIY3S7d	867bc01476cd530af6d27b5bad66933	#000000	ف٩	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+153	[]	[]	#FFFFFF	b3mGuI0FPssEEz	867bc01476cd530af6d27b5bad66933	#000000	ف8	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
 123	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	llSfEf44rUyBww	ormtckbsh8x0plk7e45tggph562lufc	#000000	https://www.youtube.com/watch?v=enFeM1NXonA	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
-116	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	S4vJCKjKPjlnA8	867bc01476cd530af6d27b5bad66933	#00ffff	 كيف الحال 	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-114	[]	["1db82554e5a9437d67da6e:2"]	#FFFFFF	e036VZBJGr4cLT	867bc01476cd530af6d27b5bad66933	#000000	س١	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-113	[]	["1db82554e5a9437d67da6e:2","612f23b9956c63ef868ebc61:1"]	#FFFFFF	4kNdzfjA1Iah3u	867bc01476cd530af6d27b5bad66933	#000000	 السلام عليكم ورحمة الله وبركاتة  	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-117	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	N5R09FPoo1GCMl	867bc01476cd530af6d27b5bad66933	#00ffff	ظءظيظسظي	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-122	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	SB4X3R95HU7UKy	867bc01476cd530af6d27b5bad66933	#000000	 السلام عليكم ورحمة الله وبركاتة  	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-119	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	yQNmQ98M9RCy8o	867bc01476cd530af6d27b5bad66933	#00ffff	ميميمي	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-118	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	MEFhdT4PIaNE7q	867bc01476cd530af6d27b5bad66933	#00ffff	مسميمي	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-115	[{"cid":"24QbBoekho","id":"E0I9wCuWQiBMmGm4AAAt","uid":"612f23b9956c63ef868ebc61","topic":"زهره","pic":"pic.png","msg":"ادازلاداا","ucol":"#000000","time":1794524179657},{"cid":"mL4zbSV2SK","id":"AbhEB8FHOyLzOwBHAAAk","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ؤظظيظؤظؤظ","ucol":"#000000","time":1794524188093,"replyToCid":"24QbBoekho"}]	["612f23b9956c63ef868ebc61:2","1db82554e5a9437d67da6e:1"]	#FFFFFF	UbaiGFDgMccDNR	867bc01476cd530af6d27b5bad66933	#000000	 السلام عليكم ورحمة الله وبركاتة  	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-112	[]	["tamxbgxn7ds9shhxgzz665:1","1db82554e5a9437d67da6e:1"]	#FFFFFF	kEdzEOIDprpWpd	867bc01476cd530af6d27b5bad66933	#000000	&#x3C;div class="ssss">&#x3C;a href="/sendfile/1794507433039_904cee.jpg" class="uplink">/sendfile/1794507433039_904cee.jpg&#x3C;/a>&#x3C;/div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-107	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	5PHItSkuQLCrFc	867bc01476cd530af6d27b5bad66933	#000000	&#x3C;div class="ssss">&#x3C;a href="https://www.youtube.com/watch?v=enFeM1NXonA" class="uplink">https://www.youtube.com/watch?v=enFeM1NXonA&#x3C;/a>&#x3C;/div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-120	[]	["1db82554e5a9437d67da6e:2"]	#FFFFFF	GtQ5XjMKOurHWY	867bc01476cd530af6d27b5bad66933	#00ffff	مسمي	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-121	[]	[]	#FFFFFF	vFnTs0BQFoyvAx	867bc01476cd530af6d27b5bad66933	#00ffff	ننت	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
-102	[{"cid":"53cgIvebGQ","id":"3b9iLyf8J1_aG-ZMAAAE","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"pic.png","msg":"تنمتنم","ucol":"#000000","time":1794439189028},{"cid":"KPTaVkTELB","id":"3b9iLyf8J1_aG-ZMAAAE","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"pic.png","msg":"تناتناتن","ucol":"#000000","time":1794439197145,"replyToCid":"53cgIvebGQ"},{"cid":"BGbtw7eFII","id":"qyW65zqlQJZn4OscAAAD","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ارحب","ucol":"#000000","time":1794502099225},{"cid":"EjOTQmlnum","id":"qyW65zqlQJZn4OscAAAD","uid":"1db82554e5a9437d67da6e","topic":"مازن","pic":"/pic/1794440403648_6c221e.jpg","msg":"ظيظيظس","ucol":"#000000","time":1794502104663,"replyToCid":"BGbtw7eFII"}]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	pEYWL6WcGt3Rav	ormtckbsh8x0plk7e45tggph562lufc	#000000	منورين	pic.png	seohost	#000000	tamxbgxn7ds9shhxgzz665
 124	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	d4VC4g5jHvEi1p	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/sendfile/1794687325385_b8d273.jpg" class="uplink">/sendfile/1794687325385_b8d273.jpg</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
 125	[]	[]	#FFFFFF	R1KppflOhjx3Df	ormtckbsh8x0plk7e45tggph562lufc	#000000	<div class="ssss"><a href="https://www.youtube.com/watch?v=2SQwm9c9d6s" class="uplink">https://www.youtube.com/watch?v=2SQwm9c9d6s</a><br/>Ramy Gamal - Entahena [Official Lyrics Video] | رامي جمال - ⁠انتهينا</div>	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
 126	[]	[]	#FFFFFF	IXe6WLuar5l8zS	ormtckbsh8x0plk7e45tggph562lufc	#000000	<div class="ssss"><a href="https://www.youtube.com/watch?v=2SQwm9c9d6s" class="uplink">https://www.youtube.com/watch?v=2SQwm9c9d6s</a><br/>استمعوا</div>	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
-131	[]	["g_PTEl5J8Tms2q:1","g_6X5oqTsY0lr3:2"]	#ffffff	UdddLGlcloMd9B	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	السلام عليكم ورحمة الله وبركاتة  السلام عليكم ورحمة الله وبركاتة  السلام عليكم ورحمة الله وبركاتة	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+140	[]	[]	#ffffff	7bBt9hxtx5e5JJ	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/sendfile/1795037121054_cb8c22.mp4" class="uplink">/sendfile/1795037121054_cb8c22.mp4</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
 127	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	UZyAjtXvlpMZ8a	ormtckbsh8x0plk7e45tggph562lufc	#000000	سيب	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
+131	[{"cid":"R9q01UYy3Q","id":"E5Gnx07SVtMNVcxZAAAn","uid":"de880c63979c3e9ff6667baa","topic":"كمال","pic":"pic.png","msg":"❤️❤️❤️❤️❤️❤️❤️","ucol":"#000000","time":1795041577272,"documents":false,"documentationc":false}]	["g_PTEl5J8Tms2q:1","g_6X5oqTsY0lr3:2","tamxbgxn7ds9shhxgzz665:1","de880c63979c3e9ff6667baa:1"]	#ffffff	UdddLGlcloMd9B	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	السلام عليكم ورحمة الله وبركاتة  السلام عليكم ورحمة الله وبركاتة  السلام عليكم ورحمة الله وبركاتة	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+132	[]	[]	#ffffff	4bWC5HJvLIsOvV	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/sendfile/1795033960650_2388a2.jpg" class="uplink">/sendfile/1795033960650_2388a2.jpg</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+133	[]	[]	#FFFFFF	3lmtVWxBI7Vprr	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/emo/1773355492653.gif" class="uplink">/emo/1773355492653.gif</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
 130	[]	["tamxbgxn7ds9shhxgzz665:1","g_PTEl5J8Tms2q:2"]	#FFFFFF	9yQbIZKsoxcwM5	ormtckbsh8x0plk7e45tggph562lufc	#000000	<div class="ssss"><a href="/sendfile/1794698599130_3caefa.webm" class="uplink">/sendfile/1794698599130_3caefa.webm</a><br/>ءلاام</div>	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
+134	[]	[]	#FFFFFF	1LABcKliUekeEY	867bc01476cd530af6d27b5bad66933	#000000	ف1	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
 129	[{"cid":"onB5HKjsO6","id":"iWtY9rOgJ8JGW_nyAAAL","uid":"tamxbgxn7ds9shhxgzz665","topic":"seohostseohost","pic":"/pic/1794512127060_378568.jpg","msg":"يبيبيب","ucol":"#ffffff","time":1794697477250,"documents":true,"documentationc":true},{"cid":"4DUP4vhwjo","id":"Kj9ei7VP_nTBAZnbAAAo","uid":"g_PTEl5J8Tms2q","topic":"سامر","pic":"pic.png","msg":"سيبيسب","ucol":"#996c6c","time":1794700953445,"documents":false,"documentationc":false},{"cid":"cz2ThmFvgC","id":"Kj9ei7VP_nTBAZnbAAAo","uid":"g_PTEl5J8Tms2q","topic":"سامر","pic":"pic.png","msg":"ياسلام عليك","ucol":"#996c6c","time":1794700967877,"documents":false,"documentationc":false,"replyToCid":"onB5HKjsO6"}]	[]	#FFFFFF	L4HmRVnhqFpfKV	ormtckbsh8x0plk7e45tggph562lufc	#000000	<div class="ssss"><a href="/sendfile/1794697439071_bc815c.jpg" class="uplink">/sendfile/1794697439071_bc815c.jpg</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#ffffff	tamxbgxn7ds9shhxgzz665
+135	[]	[]	#ffffff	h7MvLf9jpGTS7v	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/sendfile/1795034947694_770bd1.jpg" class="uplink">/sendfile/1795034947694_770bd1.jpg</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+136	[]	[]	#ffffff	sQA3evSGONZejh	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/sendfile/1795034964442_9ca204.webm" class="uplink">/sendfile/1795034964442_9ca204.webm</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+137	[]	[]	#FFFFFF	BFqeclR8o5eyQQ	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="https://www.youtube.com/watch?v=ioXRzIv8nfY" class="uplink">https://www.youtube.com/watch?v=ioXRzIv8nfY</a><br/>Tamer Hosny Jordan Concert 2026 / تامر حسني – حفل الأردن</div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+138	[]	[]	#ffffff	xCk05IbgUE85Vl	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/emo/1773355492653.gif" class="uplink">/emo/1773355492653.gif</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+139	[]	[]	#ffffff	waVOs70agguqSS	ormtckbsh8x0plk7e45tggph562lufc	#0b0a0a	<div class="ssss"><a href="/emo/1773355492653.gif" class="uplink">/emo/1773355492653.gif</a></div>	/pic/1794512127060_378568.jpg	seohostseohost	#f0ebeb	tamxbgxn7ds9shhxgzz665
+142	[]	["de880c63979c3e9ff6667baa:2"]	#FFFFFF	Z92U3m4qDqL3he	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/sendfile/1795038611209_852552.mp3" class="uplink">/sendfile/1795038611209_852552.mp3</a><br/>طرب</div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+143	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	y1psYdQOrv9zJ1	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/emo/1773355492653.gif" class="uplink">/emo/1773355492653.gif</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+144	[]	["1db82554e5a9437d67da6e:1"]	#FFFFFF	UEu4CCG2RUuq8e	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/emo/1773365316706.gif" class="uplink">/emo/1773365316706.gif</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+145	[]	[]	#FFFFFF	rlcvdMgCZRH3kd	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/emo/1773355492653.gif" class="uplink">/emo/1773355492653.gif</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
+146	[]	[]	#FFFFFF	VfqnopNcyS6OE6	867bc01476cd530af6d27b5bad66933	#000000	<div class="ssss"><a href="/emo/1773365316706.gif" class="uplink">/emo/1773365316706.gif</a></div>	/pic/1794440403648_6c221e.jpg	مازن	#000000	1db82554e5a9437d67da6e
 \.
 
 
@@ -3067,6 +3562,36 @@ COPY public.coin_ledger (id, txid, event_type, actor_uid, actor_idreg, user_uid,
 63	gift_1794687658399_utwqqy	gift_receive	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	1	4	5	1776445025983.jpg		127.0.0.1	1794687658399
 64	gift_1794687669419_0r6zrl	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	-1	1983	1982	1776445025983.jpg		127.0.0.1	1794687669419
 65	gift_1794687669419_0r6zrl	gift_receive	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	1	5	6	1776445025983.jpg		127.0.0.1	1794687669419
+66	gift_1795034373646_pw5k0p	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	-1	6	5	1776445025983.jpg		127.0.0.1	1795034373674
+67	gift_1795034373646_pw5k0p	gift_receive	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1	1982	1983	1776445025983.jpg		127.0.0.1	1795034373674
+68	gift_1795035525872_jlslfa	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	-1	1983	1982	1776445025983.jpg		127.0.0.1	1795035525888
+69	gift_1795035525872_jlslfa	gift_receive	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	1	5	6	1776445025983.jpg		127.0.0.1	1795035525888
+70	gift_1795039404700_mnd87e	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	-1	6	5	1776445025983.jpg		127.0.0.1	1795039404784
+71	gift_1795039404700_mnd87e	gift_receive	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1	1982	1983	1776445025983.jpg		127.0.0.1	1795039404784
+72	gift_1795039409596_tztlqo	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	-1	5	4	1776445025983.jpg		127.0.0.1	1795039409600
+73	gift_1795039409596_tztlqo	gift_receive	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1	1983	1984	1776445025983.jpg		127.0.0.1	1795039409600
+74	gift_1795039418413_s8dazh	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	-1	4	3	1776445025983.jpg		127.0.0.1	1795039418417
+75	gift_1795039418413_s8dazh	gift_receive	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1	1984	1985	1776445025983.jpg		127.0.0.1	1795039418417
+76	gift_1795039424388_5g3rvv	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	-1	3	2	1776445025983.jpg		127.0.0.1	1795039424392
+77	gift_1795039424388_5g3rvv	gift_receive	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	1	1985	1986	1776445025983.jpg		127.0.0.1	1795039424392
+78	gift_1795040266940_ctxmok	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	de880c63979c3e9ff6667baa	26	-1	2	1	1776445025983.jpg		127.0.0.1	1795040266956
+79	gift_1795040266940_ctxmok	gift_receive	tamxbgxn7ds9shhxgzz665	2	de880c63979c3e9ff6667baa	26	tamxbgxn7ds9shhxgzz665	2	1	0	1	1776445025983.jpg		127.0.0.1	1795040266956
+80	gift_1795041492218_af3bdz	gift_send	tamxbgxn7ds9shhxgzz665	2	tamxbgxn7ds9shhxgzz665	2	de880c63979c3e9ff6667baa	26	-1	1	0	1776445025983.jpg		127.0.0.1	1795041492222
+81	gift_1795041492218_af3bdz	gift_receive	tamxbgxn7ds9shhxgzz665	2	de880c63979c3e9ff6667baa	26	tamxbgxn7ds9shhxgzz665	2	1	1	2	1776445025983.jpg		127.0.0.1	1795041492222
+82	gift_1795042349441_jkrfts	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-1	1986	1985	1776445025983.jpg		127.0.0.1	1795042349468
+83	gift_1795042349441_jkrfts	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	1	2	3	1776445025983.jpg		127.0.0.1	1795042349468
+84	gift_1795134396925_e26bab0dea88	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-5	1985	1980	1776445025983.jpg	Gift on feed post post_1795134158750_3e060974	127.0.0.1	1795134396945
+85	gift_1795134396925_e26bab0dea88	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	5	3	8	1776445025983.jpg	Gift on feed post post_1795134158750_3e060974	127.0.0.1	1795134396945
+86	gift_1795134614246_39208a06e973	gift_send	de880c63979c3e9ff6667baa	26	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	-1	8	7	1776445025983.jpg	Gift on feed post post_1795134533084_f796278d	127.0.0.1	1795134614249
+87	gift_1795134614246_39208a06e973	gift_receive	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1	1980	1981	1776445025983.jpg	Gift on feed post post_1795134533084_f796278d	127.0.0.1	1795134614249
+88	gift_1795135486680_646b477afe9a	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-1	1981	1980	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135486686
+89	gift_1795135486680_646b477afe9a	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	1	7	8	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135486686
+90	gift_1795135509992_102fd27f7626	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-5	1980	1975	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135510000
+91	gift_1795135509992_102fd27f7626	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	5	8	13	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135510000
+92	gift_1795135547838_3195dcfee9c6	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-1	1975	1974	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135547842
+93	gift_1795135547838_3195dcfee9c6	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	1	13	14	1776445025983.jpg	Gift on feed post post_1795135287343_56e86afe	127.0.0.1	1795135547842
+94	gift_1795135778845_f72ee3185216	gift_send	1db82554e5a9437d67da6e	8	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	-1	1974	1973	1776445025983.jpg		127.0.0.1	1795135778862
+95	gift_1795135778845_f72ee3185216	gift_receive	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	1	14	15	1776445025983.jpg		127.0.0.1	1795135778862
 \.
 
 
@@ -3091,6 +3616,83 @@ COPY public.cuts (id, text1, text2) FROM stdin;
 
 
 --
+-- Data for Name: feed_bookmarks; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_bookmarks (id, post_id, user_uid, created_at) FROM stdin;
+1	post_1795133850115_8e93856e	de880c63979c3e9ff6667baa	1795134056805
+2	post_1795134158750_3e060974	de880c63979c3e9ff6667baa	1795134441733
+\.
+
+
+--
+-- Data for Name: feed_comment_likes; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_comment_likes (id, comment_id, user_uid, created_at) FROM stdin;
+1	comm_1795134009219_ff1c4b3b	de880c63979c3e9ff6667baa	1795134013580
+2	comm_1795134235968_163be8aa	de880c63979c3e9ff6667baa	1795134238906
+3	comm_1795134354222_bbf235cb	1db82554e5a9437d67da6e	1795134357333
+4	comm_1795134235968_163be8aa	1db82554e5a9437d67da6e	1795134358131
+5	comm_1795134860694_b10d8525	de880c63979c3e9ff6667baa	1795134865386
+\.
+
+
+--
+-- Data for Name: feed_comments; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_comments (id, comment_id, post_id, parent_comment_id, reply_to_uid, reply_to_username, author_uid, content, likes_count, replies_count, created_at, updated_at) FROM stdin;
+2	comm_1795134019314_12ab9def	post_1795133850115_8e93856e	comm_1795134009219_ff1c4b3b	de880c63979c3e9ff6667baa	كيمو	de880c63979c3e9ff6667baa	رهيب	0	0	1795134019314	1795134019314
+1	comm_1795134009219_ff1c4b3b	post_1795133850115_8e93856e				de880c63979c3e9ff6667baa	🎵	1	1	1795134009219	1795134009219
+4	comm_1795134354222_bbf235cb	post_1795134158750_3e060974				1db82554e5a9437d67da6e	😂😮	1	0	1795134354222	1795134354222
+3	comm_1795134235968_163be8aa	post_1795134158750_3e060974				de880c63979c3e9ff6667baa	😍😍😢	2	0	1795134235968	1795134235968
+5	comm_1795134841635_3b6dab64	post_1795134533084_f796278d				de880c63979c3e9ff6667baa	رهيب	0	1	1795134841635	1795134841635
+6	comm_1795134860694_b10d8525	post_1795134533084_f796278d	comm_1795134841635_3b6dab64	de880c63979c3e9ff6667baa	كيمو	de880c63979c3e9ff6667baa	قوووو وة 🔥❤️❤️	1	0	1795134860694	1795134860694
+\.
+
+
+--
+-- Data for Name: feed_post_likes; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_post_likes (id, post_id, user_uid, created_at) FROM stdin;
+2	post_1795133850115_8e93856e	de880c63979c3e9ff6667baa	1795133999737
+3	post_1795134158750_3e060974	1db82554e5a9437d67da6e	1795134344642
+4	post_1795134158750_3e060974	de880c63979c3e9ff6667baa	1795134368248
+5	post_1795134533084_f796278d	1db82554e5a9437d67da6e	1795134674273
+6	post_1795134533084_f796278d	de880c63979c3e9ff6667baa	1795134913379
+\.
+
+
+--
+-- Data for Name: feed_post_media; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_post_media (id, post_id, media_type, url, thumbnail_url, width, height, duration, sort_order, created_at) FROM stdin;
+1	post_1795133850115_8e93856e	video	/uploads/feed/feed_1795133850068_a7646cede189.mp4		0	0	0	0	1795133850115
+2	post_1795134158750_3e060974	video	/uploads/feed/feed_1795134158560_dbf20e9ab9a6.mp4		0	0	0	0	1795134158750
+3	post_1795134533084_f796278d	image	/uploads/feed/feed_1795134533040_f64f0cc687ad.webp		100	100	0	0	1795134533084
+4	post_1795134533084_f796278d	image	/uploads/feed/feed_1795134533065_9b7d882027dd.webp		100	100	0	1	1795134533084
+5	post_1795135287343_56e86afe	image	/uploads/feed/feed_1795135286935_8cc0851cb4e1.webp		486	1177	0	0	1795135287343
+6	post_1795135621268_7b7354f3	image	/uploads/feed/feed_1795135620749_665d11ca3b7f.webp		1024	1536	0	0	1795135621268
+\.
+
+
+--
+-- Data for Name: feed_posts; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.feed_posts (id, post_id, author_uid, author_idreg, caption, media_type, music_title, likes_count, comments_count, reposts_count, shares_count, views_count, visibility, created_at, updated_at) FROM stdin;
+1	post_1795133850115_8e93856e	1db82554e5a9437d67da6e	8	#حب	image		1	2	0	0	0	public	1795133850115	1795133850115
+2	post_1795134158750_3e060974	de880c63979c3e9ff6667baa	26	صباحي انت واشراقي 🌸❤️	image	صباحي	2	2	0	0	0	public	1795134158750	1795134158750
+3	post_1795134533084_f796278d	1db82554e5a9437d67da6e	8	صباح الورد عليكم كلكم \n\n#صباح_الحب\n#صباح_التفائل	carousel		2	2	0	0	0	public	1795134533084	1795134533084
+4	post_1795135287343_56e86afe	de880c63979c3e9ff6667baa	26		image		0	0	0	0	0	public	1795135287343	1795135287343
+5	post_1795135621268_7b7354f3	de880c63979c3e9ff6667baa	26		image		0	0	0	0	0	public	1795135621268	1795135621268
+\.
+
+
+--
 -- Data for Name: followers; Type: TABLE DATA; Schema: public; Owner: -
 --
 
@@ -3103,6 +3705,20 @@ COPY public.followers (id, follower_id, following_id, created_at) FROM stdin;
 18	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	1794522945244
 20	1db82554e5a9437d67da6e	5i8j4dzvrmg6w7l3nw4rvy	1794592261356
 24	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	1794687871387
+25	tamxbgxn7ds9shhxgzz665	de880c63979c3e9ff6667baa	1795041465627
+26	de880c63979c3e9ff6667baa	1db82554e5a9437d67da6e	1795134744020
+29	1db82554e5a9437d67da6e	de880c63979c3e9ff6667baa	1795135402637
+\.
+
+
+--
+-- Data for Name: gift_fee_slabs; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.gift_fee_slabs (id, slab_min_coin, slab_max_coin, platform_fee_bps, is_active, created_at, updated_at) FROM stdin;
+1	1	10	500	t	1795128243206	1795128243206
+2	11	100	1000	t	1795128243206	1795128243206
+3	101	\N	1500	t	1795128243206	1795128243206
 \.
 
 
@@ -3124,23 +3740,50 @@ COPY public.gift_notifications (id, txid, to_uid, to_idreg, from_uid, from_idreg
 11	gift_1776452254033_c5d6d2232997	5i8j4dzvrmg6w7l3nw4rvy	3	pj1l22e51ih51bilghkyp0	5	medo	1776445025983.jpg	1		t	1776452254036	1776462802590
 12	gift_1776452298966_233d017dc176	5i8j4dzvrmg6w7l3nw4rvy	3	pj1l22e51ih51bilghkyp0	5	medo	1776445025983.jpg	1		t	1776452298968	1776462802590
 13	gift_1776452316714_0148df25e9db	5i8j4dzvrmg6w7l3nw4rvy	3	pj1l22e51ih51bilghkyp0	5	medo	1776445025983.jpg	1		t	1776452316720	1776462802590
-15	gift_1794619587959_f8ztuc	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619587959	1794619587959
-16	gift_1794619595697_ss84na	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619595697	1794619595697
-17	gift_1794619608189_0euh14	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619608189	1794619608189
-18	gift_1794619628944_j6ph5y	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619628944	1794619628944
-19	gift_1794619658972_221nwx	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619658972	1794619658972
-20	gift_1794619688413_08xuqy	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619688413	1794619688413
-21	gift_1794619761426_ayuzka	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619761426	1794619761426
-22	gift_1794620160319_ez9h6j	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776444994729.jpg	600		t	1794620160319	1794620160319
-23	gift_1794620226043_aaqeuh	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776441783301.jpg	780		t	1794620226043	1794620226043
-24	gift_1794620251962_8u8hjt	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445012406.jpg	600		t	1794620251962	1794620251962
-25	gift_1794620287500_xpsu1v	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794620287500	1794620287500
 26	gift_1794685135916_2ualwj	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794685135916	1794685135916
 27	gift_1794685476479_rvr23w	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794685476479	1794685476479
 28	gift_1794687601222_57zbxt	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794687601222	1794687601222
 29	gift_1794687614624_xti6qp	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794687614624	1794687614624
 30	gift_1794687658399_utwqqy	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794687658399	1794687658399
 31	gift_1794687669419_0r6zrl	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1794687669419	1794687669419
+33	gift_1795035525872_jlslfa	tamxbgxn7ds9shhxgzz665	2	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1795035525888	1795035525888
+42	gift_1795134614246_39208a06e973	1db82554e5a9437d67da6e	8	de880c63979c3e9ff6667baa	26	كمال	1776445025983.jpg	1	Gift on feed post post_1795134533084_f796278d	t	1795134614249	1795135370520
+15	gift_1794619587959_f8ztuc	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619587959	1795135370520
+16	gift_1794619595697_ss84na	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619595697	1795135370520
+17	gift_1794619608189_0euh14	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619608189	1795135370520
+41	gift_1795134396925_e26bab0dea88	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	5	Gift on feed post post_1795134158750_3e060974	t	1795134396945	1795135582832
+38	gift_1795040266940_ctxmok	de880c63979c3e9ff6667baa	26	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795040266956	1795135582832
+18	gift_1794619628944_j6ph5y	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619628944	1795135370520
+19	gift_1794619658972_221nwx	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619658972	1795135370520
+20	gift_1794619688413_08xuqy	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619688413	1795135370520
+21	gift_1794619761426_ayuzka	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794619761426	1795135370520
+22	gift_1794620160319_ez9h6j	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776444994729.jpg	600		t	1794620160319	1795135370520
+23	gift_1794620226043_aaqeuh	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776441783301.jpg	780		t	1794620226043	1795135370520
+24	gift_1794620251962_8u8hjt	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445012406.jpg	600		t	1794620251962	1795135370520
+25	gift_1794620287500_xpsu1v	1db82554e5a9437d67da6e	8	af9114346116b469bcd1deb3	22	علي	1776445025983.jpg	1		t	1794620287500	1795135370520
+32	gift_1795034373646_pw5k0p	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795034373674	1795135370520
+34	gift_1795039404700_mnd87e	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795039404784	1795135370520
+35	gift_1795039409596_tztlqo	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795039409600	1795135370520
+36	gift_1795039418413_s8dazh	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795039418417	1795135370520
+37	gift_1795039424388_5g3rvv	1db82554e5a9437d67da6e	8	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795039424392	1795135370520
+39	gift_1795041492218_af3bdz	de880c63979c3e9ff6667baa	26	tamxbgxn7ds9shhxgzz665	2	seohostseohost	1776445025983.jpg	1		t	1795041492222	1795135582832
+40	gift_1795042349441_jkrfts	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1795042349468	1795135582832
+43	gift_1795135486680_646b477afe9a	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1	Gift on feed post post_1795135287343_56e86afe	t	1795135486686	1795135582832
+44	gift_1795135509992_102fd27f7626	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	5	Gift on feed post post_1795135287343_56e86afe	t	1795135510000	1795135582832
+45	gift_1795135547838_3195dcfee9c6	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1	Gift on feed post post_1795135287343_56e86afe	t	1795135547842	1795135582832
+46	gift_1795135778845_f72ee3185216	de880c63979c3e9ff6667baa	26	1db82554e5a9437d67da6e	8	مازن	1776445025983.jpg	1		t	1795135778862	1795135778862
+\.
+
+
+--
+-- Data for Name: gift_settings; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.gift_settings (key, value, updated_at, updated_by) FROM stdin;
+max_qty	100	1795128243206	\N
+rate_limit_max	6	1795128243206	\N
+rate_limit_window_ms	15000	1795128243206	\N
+gift_enabled	true	1795128243206	\N
 \.
 
 
@@ -3159,11 +3802,42 @@ COPY public.histletter (id, ip, msg, topic, v, "time", target, source, path) FRO
 
 
 --
+-- Data for Name: hosting_owner_wallet; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.hosting_owner_wallet (id, balance_coins, status, created_at, updated_at) FROM stdin;
+1	0	active	1795128243206	1795128243206
+\.
+
+
+--
+-- Data for Name: hosting_owner_wallet_ledger; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.hosting_owner_wallet_ledger (id, txid, event_type, amount, before_balance, after_balance, reference_table, reference_id, note, created_at) FROM stdin;
+\.
+
+
+--
 -- Data for Name: hosts; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 COPY public.hosts (id, hostname, setting) FROM stdin;
 1	localhost	1
+\.
+
+
+--
+-- Data for Name: idempotency_records; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.idempotency_records (user_uid, idempotency_key, source_type, payload_hash, status, owner_token, lease_expires_at, locked_unit_coin, txid, response_json, error_message, created_at, updated_at) FROM stdin;
+1db82554e5a9437d67da6e	gift_feed_post_1795134158750_3e060974_1795134396902_360b0554	feed_post	a2c685d95f8cd3ce700dc04f4ed845e231619f57fa8aa9acd87bb76d9cc101bf	completed	ef699937725707d1ac242efef7e935def126d174961f7725	1795134401912	1	gift_1795134396925_e26bab0dea88	{"ok":true,"txid":"gift_1795134396925_e26bab0dea88","senderAfter":1980,"senderBefore":1985,"receiverAfter":8,"receiverBefore":3,"receiverGiftsAfter":8,"quantity":5,"totalCoin":5,"receiverCoin":5,"platformFee":0,"hostingFee":0,"senderUid":"1db82554e5a9437d67da6e","senderIdreg":8,"receiverUid":"de880c63979c3e9ff6667baa","receiverIdreg":26}	\N	1795134396912	1795134396945
+de880c63979c3e9ff6667baa	gift_feed_post_1795134533084_f796278d_1795134614231_8c0990bd	feed_post	1623886476ff4397dc9b71f83f7c05a21402d9430c5125351b897be677e18f16	completed	69058606df289ec06c25ea3ecea0b3c0f2796445976e04d4	1795134619240	1	gift_1795134614246_39208a06e973	{"ok":true,"txid":"gift_1795134614246_39208a06e973","senderAfter":7,"senderBefore":8,"receiverAfter":1981,"receiverBefore":1980,"receiverGiftsAfter":17,"quantity":1,"totalCoin":1,"receiverCoin":1,"platformFee":0,"hostingFee":0,"senderUid":"de880c63979c3e9ff6667baa","senderIdreg":26,"receiverUid":"1db82554e5a9437d67da6e","receiverIdreg":8}	\N	1795134614240	1795134614249
+1db82554e5a9437d67da6e	gift_feed_post_1795135287343_56e86afe_1795135486662_3403ddb1	feed_post	64d680c16e3b413022ee7d2b651a41ee35846e029222669d4d4e44d76f34c263	completed	9d88cd6ea2dd942b0bda39df707a4c9e0de69aa48a442e36	1795135491669	1	gift_1795135486680_646b477afe9a	{"ok":true,"txid":"gift_1795135486680_646b477afe9a","senderAfter":1980,"senderBefore":1981,"receiverAfter":8,"receiverBefore":7,"receiverGiftsAfter":9,"quantity":1,"totalCoin":1,"receiverCoin":1,"platformFee":0,"hostingFee":0,"senderUid":"1db82554e5a9437d67da6e","senderIdreg":8,"receiverUid":"de880c63979c3e9ff6667baa","receiverIdreg":26}	\N	1795135486669	1795135486686
+1db82554e5a9437d67da6e	gift_feed_post_1795135287343_56e86afe_1795135509970_9a6078d6	feed_post	760b0ce837e889c849205c43ddf2829743aee60691746bc691037a4048d2de2f	completed	2192afb8afff14f77f6e6b83458e696b041aa28740bdbf7d	1795135514980	1	gift_1795135509992_102fd27f7626	{"ok":true,"txid":"gift_1795135509992_102fd27f7626","senderAfter":1975,"senderBefore":1980,"receiverAfter":13,"receiverBefore":8,"receiverGiftsAfter":14,"quantity":5,"totalCoin":5,"receiverCoin":5,"platformFee":0,"hostingFee":0,"senderUid":"1db82554e5a9437d67da6e","senderIdreg":8,"receiverUid":"de880c63979c3e9ff6667baa","receiverIdreg":26}	\N	1795135509980	1795135510000
+1db82554e5a9437d67da6e	gift_feed_post_1795135287343_56e86afe_1795135547817_ead9cc2d	feed_post	64d680c16e3b413022ee7d2b651a41ee35846e029222669d4d4e44d76f34c263	completed	b0bfe6cf519984067787b9f5ec3769a9ca826d63dcf98476	1795135552823	1	gift_1795135547838_3195dcfee9c6	{"ok":true,"txid":"gift_1795135547838_3195dcfee9c6","senderAfter":1974,"senderBefore":1975,"receiverAfter":14,"receiverBefore":13,"receiverGiftsAfter":15,"quantity":1,"totalCoin":1,"receiverCoin":1,"platformFee":0,"hostingFee":0,"senderUid":"1db82554e5a9437d67da6e","senderIdreg":8,"receiverUid":"de880c63979c3e9ff6667baa","receiverIdreg":26}	\N	1795135547823	1795135547842
+1db82554e5a9437d67da6e	5407cf12-1df4-498d-abae-525dd63e524d	room	936fd5a5d06750756a107e14d0c5ff8776ff26e933befab1e0660c202260c3c4	completed	8906fbe9ff00de83cfbbe29c84c59b9e019b05cc0b957665	1795135783824	1	gift_1795135778845_f72ee3185216	{"ok":true,"txid":"gift_1795135778845_f72ee3185216","senderAfter":1973,"senderBefore":1974,"receiverAfter":15,"receiverBefore":14,"receiverGiftsAfter":16,"quantity":1,"totalCoin":1,"receiverCoin":1,"platformFee":0,"hostingFee":0,"senderUid":"1db82554e5a9437d67da6e","senderIdreg":8,"receiverUid":"de880c63979c3e9ff6667baa","receiverIdreg":26}	\N	1795135778824	1795135778862
 \.
 
 
@@ -3326,6 +4000,104 @@ COPY public.logs (id, state, topic, username, ip, code, device, isin, "time") FR
 169	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794769759490
 170	دخول	safari2023	safari2023	127.0.0.1	YE	ios.2.0.0.modern.safari.SA	زائر	1794771009333
 171	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794777006602
+172	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950957486
+173	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958820
+174	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958825
+175	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958826
+176	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958827
+177	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958830
+178	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958834
+179	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958835
+180	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958839
+181	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958841
+182	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1794950958843
+183	دخول	safari2023	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1794950986112
+184	دخول	safari2023	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1794950986113
+185	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795024617057
+186	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795024645262
+187	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795024780189
+188	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795024983538
+189	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795025115273
+190	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795026304796
+191	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795026314881
+192	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795027212067
+193	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795027228207
+194	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795027995417
+195	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795028003558
+196	دخول	سلام	سلام	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795028455218
+197	دخول	شسيسي	شسيسي	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795029042563
+198	دخول	زائر تجربة	زائر تجربة	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795030252613
+199	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795032176664
+200	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795032212252
+201	دخول	زائر فحص	زائر فحص	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795032627617
+202	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795033125232
+203	دخول	زائر فحص الصوت	زائر فحص الصوت	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795033331972
+204	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795034308493
+205	دخول	زائر الحائط	زائر الحائط	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795034433133
+206	دخول	زائر الحائط	زائر الحائط	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795034718439
+207	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795034891045
+208	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795035510301
+209	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795035562939
+210	دخول	زائر يوتيوب	زائر يوتيوب	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795035693475
+211	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795035722890
+212	دخول	زائر المشغل	زائر المشغل	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795036800829
+213	تسجيل	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795036975710
+214	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795037025040
+215	دخول	زائر المشغل	زائر المشغل	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795037452898
+216	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795037892140
+217	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795038036129
+218	دخول	ميدو	ميدو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	زائر	1795038912490
+219	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795039060195
+220	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795039864652
+221	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795039933005
+222	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795039957725
+223	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795040019335
+224	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795040169051
+225	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795040200462
+226	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795041890725
+227	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795041912632
+228	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795041961524
+229	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795115961546
+230	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795116069152
+231	دخول	زائر المشغل	زائر المشغل	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795116214567
+232	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795116266311
+233	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795116349406
+234	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795116622691
+235	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795116656288
+236	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795116980050
+237	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795117050366
+238	تسجيل	سامي	سامر	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795117128477
+239	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795117141240
+240	دخول	زائر المشغل	زائر المشغل	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	زائر	1795117143923
+241	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795117525590
+242	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795118175449
+243	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795118621518
+244	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795119185866
+245	دخول	سامي	سامر	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795119233169
+246	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795124469514
+247	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795125458836
+248	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795125508493
+249	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795128688058
+250	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795129634960
+251	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795130616785
+252	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795131066755
+253	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795131125767
+254	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795131251588
+255	دخول	مازن	مازن	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795131955563
+256	دخول	seohostseohost	safari2023	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795132077263
+257	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795132295130
+258	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795132391853
+259	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795132423255
+260	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795132722167
+261	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795132754724
+262	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795133469189
+263	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795133824298
+264	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795133914514
+265	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795135237385
+266	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795135386338
+267	دخول	مازن	مازن	127.0.0.1	YE	windows.2.0.0.modern.chrome.SA	عضو	1795135569252
+268	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795135582776
+269	دخول	كمال	كيمو	127.0.0.1	YE	android.2.0.0.modern.chrome.SA	عضو	1795136475786
 \.
 
 
@@ -3467,6 +4239,102 @@ COPY public.names (id, iduser, fp, ip, topic, username) FROM stdin;
 156	1db82554e5a9437d67da6e	24f7999a7dd1496d8e4b8a70e36cdbb3	127.0.0.1	مازن	مازن
 157		e6f918f32b93487682f287ed4bc985da	127.0.0.1	safari2023	safari2023
 158	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+159	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+160	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+161	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+162	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+163	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+164	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+165	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+166	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+167	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+168	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+169	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+170		e6f918f32b93487682f287ed4bc985da	127.0.0.1	safari2023	safari2023
+171		e6f918f32b93487682f287ed4bc985da	127.0.0.1	safari2023	safari2023
+172	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+173	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+174	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+175	1db82554e5a9437d67da6e	519f6dac85b7401286bdba008ab512ed	127.0.0.1	مازن	مازن
+176	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+177	1db82554e5a9437d67da6e	519f6dac85b7401286bdba008ab512ed	127.0.0.1	مازن	مازن
+178	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+179	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+180	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+181	1db82554e5a9437d67da6e	519f6dac85b7401286bdba008ab512ed	127.0.0.1	مازن	مازن
+182	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+183		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	سلام	سلام
+184		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	شسيسي	شسيسي
+185		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر تجربة	زائر تجربة
+186	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+187	1db82554e5a9437d67da6e	519f6dac85b7401286bdba008ab512ed	127.0.0.1	مازن	مازن
+188		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر فحص	زائر فحص
+189	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+190		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر فحص الصوت	زائر فحص الصوت
+191	1db82554e5a9437d67da6e	519f6dac85b7401286bdba008ab512ed	127.0.0.1	مازن	مازن
+192		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر الحائط	زائر الحائط
+193		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر الحائط	زائر الحائط
+194	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+195	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+196	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+197		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر يوتيوب	زائر يوتيوب
+198	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+199		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر المشغل	زائر المشغل
+200	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+201		c4a565589dee4e3c9e84c0e3b45bb2a1	127.0.0.1	زائر المشغل	زائر المشغل
+202	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+203	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+204		922634d6acc94f5eba48405615029f7a	127.0.0.1	ميدو	ميدو
+205	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+206	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+207	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+208	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+209	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+210	de880c63979c3e9ff6667baa	fp_mwmmo2fq_5wifmxf6ai	127.0.0.1	كمال	كيمو
+211	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+212	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+213	tamxbgxn7ds9shhxgzz665	519f6dac85b7401286bdba008ab512ed	127.0.0.1	seohostseohost	safari2023
+214	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+215	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+216	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+217		42f69c5fb68a47a7953e5912109350a2	127.0.0.1	زائر المشغل	زائر المشغل
+218	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+219	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+220	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+221	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+222	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+223	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+224	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+225		42f69c5fb68a47a7953e5912109350a2	127.0.0.1	زائر المشغل	زائر المشغل
+226	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+227	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+228	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+229	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+230	629a9a3ecc6278bf7681687d	e6f918f32b93487682f287ed4bc985da	127.0.0.1	سامي	سامر
+231	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+232	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+233	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+234	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+235	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+236	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+237	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+238	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+239	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+240	1db82554e5a9437d67da6e	922634d6acc94f5eba48405615029f7a	127.0.0.1	مازن	مازن
+241	tamxbgxn7ds9shhxgzz665	e6f918f32b93487682f287ed4bc985da	127.0.0.1	seohostseohost	safari2023
+242	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+243	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+244	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+245	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+246	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+247	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+248	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+249	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+250	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+251	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+252	1db82554e5a9437d67da6e	e6f918f32b93487682f287ed4bc985da	127.0.0.1	مازن	مازن
+253	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
+254	de880c63979c3e9ff6667baa	922634d6acc94f5eba48405615029f7a	127.0.0.1	كمال	كيمو
 \.
 
 
@@ -3479,6 +4347,10 @@ COPY public.note_comment_likes (id, comment_cid, user_uid, created_at) FROM stdi
 2	nc_clV36wO8pjPr	tamxbgxn7ds9shhxgzz665	1794695368303
 3	nc_Sk471DtnIAq6	tamxbgxn7ds9shhxgzz665	1794695640247
 4	nc_jJ0PeNpP07DX	tamxbgxn7ds9shhxgzz665	1794699484867
+5	nc_3VvhwkJypfer	1db82554e5a9437d67da6e	1795027746660
+6	nc_0uFuX4arcSfo	1db82554e5a9437d67da6e	1795027749267
+7	nc_3a4N3Ye4IeLz	de880c63979c3e9ff6667baa	1795118729291
+8	nc_AzG8uVcl4z8J	de880c63979c3e9ff6667baa	1795118730128
 \.
 
 
@@ -3494,6 +4366,20 @@ COPY public.note_comments (id, cid, note_nid, author_uid, author_topic, author_p
 1	nc_Sk471DtnIAq6	note_4tRepmhLXVom	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	قوة	1	1794685404101		
 8	nc_jJ0PeNpP07DX	note_PQFVbsKZ13J8	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#ffffff	t	😍	1	1794699481262		
 9	nc_cGqP79iPrv6D	note_PQFVbsKZ13J8	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#ffffff	t	👏😢😍😮😂	0	1794699490334	nc_jJ0PeNpP07DX	seohostseohost
+11	nc_kUaxVmJZfYkW	note_YjyOTXNWj3O3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	👏😢😍	0	1795025312916		
+12	nc_i7G0xMd8Cj0k	note_YjyOTXNWj3O3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	رهيب قوة	0	1795025320484		
+13	nc_EtFJkltqPEIp	note_YjyOTXNWj3O3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	هههه ياسلام	0	1795025333836	nc_i7G0xMd8Cj0k	seohostseohost
+14	nc_gYdjSLoCARPH	note_YjyOTXNWj3O3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	ايوة	0	1795025343653	nc_i7G0xMd8Cj0k	seohostseohost
+15	nc_tmEg3glEVLU2	note_SPvGHyhJFDes	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	شسيسي😍	0	1795027670963	nc_3VvhwkJypfer	seohostseohost
+16	nc_ibePZNxWGAXu	note_SPvGHyhJFDes	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	🔥👏😢	0	1795027675955	nc_tmEg3glEVLU2	مازن
+17	nc_GtGbiRRIjVTj	note_SPvGHyhJFDes	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	سيبسي	0	1795027688995	nc_ibePZNxWGAXu	مازن
+10	nc_3VvhwkJypfer	note_SPvGHyhJFDes	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	🔥🙌🙌😍	1	1795024831070		
+18	nc_0uFuX4arcSfo	note_SPvGHyhJFDes	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	يبسيب	1	1795027696019		
+19	nc_9jpCLeJl9XuQ	note_YjyOTXNWj3O3	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	يبسيب	0	1795027775607	nc_gYdjSLoCARPH	seohostseohost
+20	nc_HeMzatIy867V	note_YjyOTXNWj3O3	de880c63979c3e9ff6667baa	كمال	pic.png	#000000	f	قوة	0	1795041816765		
+21	nc_3a4N3Ye4IeLz	note_aMLaBndR13Ax	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	#000000	f	🙌🔥❤️	1	1795118724372		
+22	nc_AzG8uVcl4z8J	note_aMLaBndR13Ax	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	#000000	f	نورت	1	1795118726467		
+23	nc_4pUeX6OGAwyC	note_aMLaBndR13Ax	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	❤️	0	1795124586979		
 \.
 
 
@@ -3505,6 +4391,13 @@ COPY public.note_likes (id, note_nid, user_uid, topic, photo, created_at) FROM s
 1	note_4tRepmhLXVom	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1794685398116
 6	note_PQFVbsKZ13J8	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1794695558876
 7	note_4tRepmhLXVom	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1794695646279
+8	note_SPvGHyhJFDes	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1795024826077
+9	note_YjyOTXNWj3O3	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1795025083117
+10	note_YjyOTXNWj3O3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1795025125243
+11	note_SPvGHyhJFDes	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1795027753979
+12	note_YjyOTXNWj3O3	de880c63979c3e9ff6667baa	كمال	pic.png	1795041676341
+13	note_aMLaBndR13Ax	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1795118716949
+14	note_aMLaBndR13Ax	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1795124582098
 \.
 
 
@@ -3528,7 +4421,7 @@ COPY public.notext (id, type, path, v) FROM stdin;
 --
 
 COPY public.owner (id, bars, "Vpn", "Gust", datafinish, "MaxRep", "Tv", "Vistor", room, isbanner, rc, cooment, offline) FROM stdin;
-1	t	f	["windows.2.0.0.modern.chrome.SA","e522fd3d14bb4692959e5fca24f4b349","58b7e411d06d454987291cff11887902","719d532bf376435891849795805a8b84","fp_mwdrwuov_jyezt1wfru","fp_windows","298f979c63944e029ad50c05f36651bc","fp_mwe4b5eu_h9yverc1gx","9904e4d66ec744bba66eae78a039424a","e6f918f32b93487682f287ed4bc985da"]	2026-02-21 00:40:24	3		[]	2566st17zd	t	t	f	f
+1	t	f	["windows.2.0.0.modern.chrome.SA","e522fd3d14bb4692959e5fca24f4b349","58b7e411d06d454987291cff11887902","719d532bf376435891849795805a8b84","fp_mwdrwuov_jyezt1wfru","fp_windows","298f979c63944e029ad50c05f36651bc","fp_mwe4b5eu_h9yverc1gx","9904e4d66ec744bba66eae78a039424a","e6f918f32b93487682f287ed4bc985da","c4a565589dee4e3c9e84c0e3b45bb2a1","922634d6acc94f5eba48405615029f7a","42f69c5fb68a47a7953e5912109350a2"]	2026-02-21 00:40:24	3		[]	2566st17zd	t	t	f	f
 \.
 
 
@@ -3548,7 +4441,7 @@ COPY public.owner_agent_transfers (id, txid, agent_id, coins_amount, settlement_
 --
 
 COPY public.powers (id, powers) FROM stdin;
-1	[{"rank":100000,"name":"ispower","ico":"","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":1000,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0},{"rank":5000,"name":"ispower2","ico":"1771635980871.jpg","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0},{"rank":9999,"name":"chatmaster","ico":"","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0,"uploadgif":true,"gradientname":true,"custombg":true,"chattem":true,"frame":true,"banner":true,"gifticon":true,"profile_viewers":true},{"rank":5000,"name":"ترقية ذهبية","ico":"1771635980871.jpg","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":1,"auto_promote":1,"auto_points":20,"uploadgif":false,"gradientname":false,"custombg":false,"chattem":false,"frame":false,"banner":false,"gifticon":false,"profile_viewers":false},{"rank":9000,"name":"admin","ico":"","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0,"uploadgif":true,"gradientname":true,"custombg":true,"chattem":true,"frame":true,"banner":true,"gifticon":true,"profile_viewers":true},{"rank":10000,"name":"Hide","ico":"1794604974277_2af407.gif","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":1000,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":1,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":1,"auto_enabled":0,"auto_promote":0,"auto_points":0,"gifticon":1,"banner":1,"custombg":1,"frame":1,"chattem":1}]
+1	[{"rank":100000,"name":"ispower","ico":"","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":1000,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0},{"rank":5000,"name":"ispower2","ico":"1771635980871.jpg","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0},{"rank":5000,"name":"ترقية ذهبية","ico":"1771635980871.jpg","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":0,"micprovideredit":0,"hostcleanup":0,"hostcontrols":0,"hostsettings":0,"hostdomains":0,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":1,"auto_promote":1,"auto_points":20,"uploadgif":false,"gradientname":false,"custombg":false,"chattem":false,"frame":false,"banner":false,"gifticon":false,"profile_viewers":false},{"rank":9000,"name":"admin","ico":"","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":0,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":0,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":0,"auto_enabled":0,"auto_promote":0,"auto_points":0,"uploadgif":true,"gradientname":true,"custombg":true,"chattem":true,"frame":true,"banner":true,"gifticon":true,"profile_viewers":true},{"rank":10000,"name":"Hide","ico":"1794604974277_2af407.gif","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":1000,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":1,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":1,"auto_enabled":0,"auto_promote":0,"auto_points":0,"gifticon":1,"banner":1,"custombg":1,"frame":1,"chattem":1},{"rank":9999,"name":"chatmaster","ico":"1794604974277_2af407.gif","kick":1000,"delbc":1,"alert":1,"mynick":1,"unick":1,"ban":1,"publicmsg":1000,"publicmsghide":1,"forcepm":1,"roomowner":1,"createroom":1,"can_create_voice_room":1,"rooms":1000,"edituser":1,"setpower":1,"upgrades":1000,"history":1,"cp":1,"stealth":1,"owner":1,"meiut":1,"loveu":1,"ulike":1,"flter":1,"subs":1,"shrt":1,"msgs":1,"bootedit":1,"brbbot":1,"micprovideredit":1,"hostcleanup":1,"hostcontrols":1,"hostsettings":1,"hostdomains":1,"grupes":1,"delmsg":1,"delpic":1,"evaluationpoints":1,"auto_enabled":0,"auto_promote":0,"auto_points":0,"uploadgif":true,"gradientname":true,"custombg":true,"chattem":true,"frame":true,"banner":true,"gifticon":true,"profile_viewers":true}]
 \.
 
 
@@ -3565,7 +4458,7 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 108	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794599935119	عضو
 110	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794602434580	عضو
 112	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794603633549	عضو
-114	tamxbgxn7ds9shhxgzz665	af9114346116b469bcd1deb3	علي	/pic/1794603563676_1aca1b.jpg	0	1794604868532	عضو
+254	de880c63979c3e9ff6667baa	629a9a3ecc6278bf7681687d	سامي	pic.png	0	1795119238240	عضو
 121	db89e32c11d184f8ad801e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794608393734	عضو
 122	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794608398384	عضو
 123	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794608401704	عضو
@@ -3574,45 +4467,16 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 130	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794609318041	عضو
 132	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610284572	عضو
 133	3cd5e9ef9799c8883d8b9b	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610288845	عضو
-43	pj1l22e51ih51bilghkyp0	1db82554e5a9437d67da6e	مازن	pic.png	0	1794438365392	عضو
-44	8d79228f9d305c993f5cf2	1db82554e5a9437d67da6e	مازن	pic.png	0	1794438646140	عضو
-45	4yw6hre4qx9xj6hnwdrsz8	1db82554e5a9437d67da6e	مازن	pic.png	0	1794439260203	عضو
-46	ox462ainhew5o88e83elq5	1db82554e5a9437d67da6e	مازن	pic.png	0	1794439265975	عضو
+259	629a9a3ecc6278bf7681687d	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1	1795119505298	عضو
+260	629a9a3ecc6278bf7681687d	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1	1795119508251	عضو
 137	3cd5e9ef9799c8883d8b9b	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610356875	عضو
 141	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610571621	عضو
 143	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610581892	عضو
-65	5i8j4dzvrmg6w7l3nw4rvy	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794501874261	عضو
-66	pj1l22e51ih51bilghkyp0	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794501885932	عضو
-68	ox462ainhew5o88e83elq5	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794501896432	عضو
-48	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794440304662	عضو
-49	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794440318378	عضو
-50	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794440335336	عضو
-51	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794440460599	عضو
-53	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441109230	عضو
-56	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441299599	عضو
-57	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441359214	عضو
-58	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441411317	عضو
-60	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441473003	عضو
-62	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	1	1794441649523	عضو
-70	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	pic.png	0	1794509004920	عضو
-71	61630118e5fab56cd39ea5	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794510154566	عضو
-72	1e28ae10-4bf0-4413-9388-16d10428abf1	tamxbgxn7ds9shhxgzz665	seohost	/pic/1794512127060_378568.jpg	0	1794518783039	عضو
-73	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohost	/pic/1794512127060_378568.jpg	0	1794519170166	عضو
-74	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794522916529	عضو
-75	1db82554e5a9437d67da6e	612f23b9956c63ef868ebc61	زهره	pic.png	0	1794522921263	عضو
-76	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794523010853	عضو
-80	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794523124979	عضو
-81	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794523243218	عضو
+114	tamxbgxn7ds9shhxgzz665	af9114346116b469bcd1deb3	علي	/pic/1794603563676_1aca1b.jpg	1	1794604868532	عضو
 82	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794526825666	عضو
 83	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794526899638	عضو
 84	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794526922099	عضو
-47	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	pic.png	1	1794440090003	عضو
-52	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794440566752	عضو
-54	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794441214773	عضو
-55	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794441240519	عضو
-59	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794441434210	عضو
-61	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794441498508	عضو
-63	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794442422459	عضو
+255	de880c63979c3e9ff6667baa	629a9a3ecc6278bf7681687d	سامي	pic.png	0	1795119265225	عضو
 86	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794590930723	عضو
 101	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794597762539	عضو
 88	5i8j4dzvrmg6w7l3nw4rvy	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794592239143	عضو
@@ -3627,17 +4491,6 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 97	1db82554e5a9437d67da6e	g_JkbnaSqbHiB8	فاحص_الأعلام	pic.png	0	1794595939769	زائر
 98	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794596977525	عضو
 99	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794596977527	عضو
-64	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794442488578	عضو
-67	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794501888746	عضو
-69	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794502264512	عضو
-77	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794523069468	عضو
-78	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794523114884	عضو
-79	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794523117567	عضو
-85	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794588080158	عضو
-87	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794591118304	عضو
-90	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794592794576	عضو
-94	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794595557284	عضو
-95	tamxbgxn7ds9shhxgzz665	g_JkbnaSqbHiB8	فاحص_الأعلام	pic.png	1	1794595816866	زائر
 113	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794603633549	عضو
 115	db89e32c11d184f8ad801e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794605999850	عضو
 117	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794606009277	عضو
@@ -3652,28 +4505,17 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 138	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610359777	عضو
 140	3cd5e9ef9799c8883d8b9b	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610569204	عضو
 144	3cd5e9ef9799c8883d8b9b	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794610586093	عضو
-145	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794611328474	عضو
 146	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794611747806	عضو
 147	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794611799939	عضو
 148	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794612631199	عضو
 149	8d79228f9d305c993f5cf2	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794612635689	عضو
 150	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794612639239	عضو
-151	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794612906645	عضو
 152	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614308117	عضو
 153	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614308135	عضو
 154	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614489057	عضو
-155	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614493419	عضو
 111	af9114346116b469bcd1deb3	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794603327121	عضو
-156	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614500569	عضو
-157	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614710589	عضو
-158	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614729669	عضو
-159	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614753361	عضو
-160	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614758860	عضو
+256	629a9a3ecc6278bf7681687d	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1	1795119276900	عضو
 161	db89e32c11d184f8ad801e	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614948683	عضو
-162	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614968516	عضو
-163	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794614980582	عضو
-164	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615005976	عضو
-165	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615027728	عضو
 166	8d79228f9d305c993f5cf2	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615228231	عضو
 167	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615281399	عضو
 168	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615297156	عضو
@@ -3683,11 +4525,7 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 172	1db82554e5a9437d67da6e	612f23b9956c63ef868ebc61	زهره	pic.png	0	1794615431151	عضو
 173	1db82554e5a9437d67da6e	612f23b9956c63ef868ebc61	زهره	pic.png	0	1794615448235	عضو
 174	3cd5e9ef9799c8883d8b9b	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615616100	عضو
-175	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615643033	عضو
 176	612f23b9956c63ef868ebc61	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794615654304	عضو
-180	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794617594805	عضو
-181	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794617635860	عضو
-183	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794618804068	عضو
 184	1db82554e5a9437d67da6e	af9114346116b469bcd1deb3	علي	/pic/1794603563676_1aca1b.jpg	0	1794619834166	عضو
 116	af9114346116b469bcd1deb3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1	1794606003069	عضو
 142	af9114346116b469bcd1deb3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1	1794610573892	عضو
@@ -3708,41 +4546,89 @@ COPY public.profile_visits (id, owner_id, visitor_id, visitor_name, visitor_pic,
 191	af9114346116b469bcd1deb3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794678932398	عضو
 192	612f23b9956c63ef868ebc61	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794678934009	عضو
 193	af9114346116b469bcd1deb3	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794680340061	عضو
-194	tamxbgxn7ds9shhxgzz665	g_xuBtIPpXV2UF	فهد_التجربة	pic.png	0	1794683660683	زائر
-195	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794685058539	عضو
-196	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794685233415	عضو
-197	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794685233418	عضو
-199	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794685253998	عضو
-198	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794685253997	عضو
-200	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794686854355	عضو
-201	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794686870373	عضو
-202	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687079314	عضو
-203	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687113883	عضو
 204	8tyv5i71ck7f1y45k9	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687833834	عضو
-205	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687837024	عضو
 206	bot-1n06g9vqyr8vmq7vpo	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687842837	عضو
 207	bot-lwnjt12gnz8y6dhgmt	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687847166	عضو
 208	bot-1n06g9vqyr8vmq7vpo	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687852502	عضو
 209	bot-1n06g9vqyr8vmq7vpo	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687855975	عضو
-210	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794687866117	عضو
-211	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794688132141	عضو
-212	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794688152535	عضو
+257	629a9a3ecc6278bf7681687d	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1	1795119402476	عضو
 213	8tyv5i71ck7f1y45k9	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794691909924	عضو
 214	bot-1n06g9vqyr8vmq7vpo	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794692097571	عضو
 215	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1794694329023	عضو
-216	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794698805791	عضو
-217	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1794698815001	عضو
-218	tamxbgxn7ds9shhxgzz665	g_agZjBFBamH8m	سامر	pic.png	0	1794700028576	زائر
-219	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	0	1794700444729	زائر
-220	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	0	1794700484444	زائر
-221	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	0	1794700497623	زائر
-222	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	0	1794700519287	زائر
-223	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	0	1794701277583	زائر
 224	1db82554e5a9437d67da6e	g_6X5oqTsY0lr3	safari2023	pic.png	0	1794771045243	زائر
 225	8tyv5i71ck7f1y45k9	g_6X5oqTsY0lr3	safari2023	pic.png	0	1794771052432	زائر
 226	bot-lqme32udu4uukjy35h	g_6X5oqTsY0lr3	safari2023	pic.png	0	1794771552938	زائر
-227	tamxbgxn7ds9shhxgzz665	g_6X5oqTsY0lr3	safari2023	pic.png	0	1794771981596	زائر
 228	1db82554e5a9437d67da6e	g_6X5oqTsY0lr3	safari2023	pic.png	0	1794771988622	زائر
+229	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795025144688	عضو
+230	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795025152069	عضو
+231	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795025157704	عضو
+233	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026437617	عضو
+234	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026498671	عضو
+235	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026508650	عضو
+236	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026574577	عضو
+238	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026621436	عضو
+240	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795026651295	عضو
+241	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795027373910	عضو
+85	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794588080158	عضو
+87	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794591118304	عضو
+90	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794592794576	عضو
+94	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794595557284	عضو
+95	tamxbgxn7ds9shhxgzz665	g_JkbnaSqbHiB8	فاحص_الأعلام	pic.png	1	1794595816866	زائر
+145	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794611328474	عضو
+151	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794612906645	عضو
+155	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614493419	عضو
+156	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614500569	عضو
+157	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614710589	عضو
+158	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614729669	عضو
+159	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614753361	عضو
+160	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614758860	عضو
+162	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614968516	عضو
+163	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794614980582	عضو
+164	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794615005976	عضو
+165	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794615027728	عضو
+175	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794615643033	عضو
+180	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794617594805	عضو
+181	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794617635860	عضو
+183	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794618804068	عضو
+194	tamxbgxn7ds9shhxgzz665	g_xuBtIPpXV2UF	فهد_التجربة	pic.png	1	1794683660683	زائر
+195	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794685058539	عضو
+196	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794685233415	عضو
+197	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794685233418	عضو
+199	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794685253998	عضو
+198	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794685253997	عضو
+200	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794686854355	عضو
+201	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794686870373	عضو
+202	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794687079314	عضو
+203	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794687113883	عضو
+205	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794687837024	عضو
+210	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794687866117	عضو
+211	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794688132141	عضو
+212	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794688152535	عضو
+216	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794698805791	عضو
+217	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1794698815001	عضو
+218	tamxbgxn7ds9shhxgzz665	g_agZjBFBamH8m	سامر	pic.png	1	1794700028576	زائر
+219	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	1	1794700444729	زائر
+220	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	1	1794700484444	زائر
+221	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	1	1794700497623	زائر
+222	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	1	1794700519287	زائر
+223	tamxbgxn7ds9shhxgzz665	g_PTEl5J8Tms2q	سامر	pic.png	1	1794701277583	زائر
+227	tamxbgxn7ds9shhxgzz665	g_6X5oqTsY0lr3	safari2023	pic.png	1	1794771981596	زائر
+232	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1795026411022	عضو
+237	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1795026595821	عضو
+239	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1	1795026639886	عضو
+242	tamxbgxn7ds9shhxgzz665	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1795027796865	عضو
+243	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795034346062	عضو
+244	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795034370412	عضو
+245	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795037850174	عضو
+246	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795037852540	عضو
+247	tamxbgxn7ds9shhxgzz665	g_QW67ICouW7YI	ميدو	pic.png	0	1795039436749	زائر
+248	tamxbgxn7ds9shhxgzz665	g_QW67ICouW7YI	ميدو	pic.png	0	1795039436779	زائر
+249	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795039521645	عضو
+250	1db82554e5a9437d67da6e	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	0	1795039521651	عضو
+251	de880c63979c3e9ff6667baa	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1795042331849	عضو
+252	de880c63979c3e9ff6667baa	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1795042341641	عضو
+253	de880c63979c3e9ff6667baa	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	0	1795042347562	عضو
+258	629a9a3ecc6278bf7681687d	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1	1795119498373	عضو
 \.
 
 
@@ -3808,7 +4694,7 @@ COPY public.room_welcome_visits (id, room_id, identity_key, is_guest, first_seen
 33	D8D8A9A9C0	1df05ea402cb47ffaf759734	f	1794504626568	1794504626568	1
 34	2566st17zd	1df05ea402cb47ffaf759734	f	1794504649055	1794504649055	1
 18	D8D8A9A9C0	tamxbgxn7ds9shhxgzz665	f	1794433984288	1794693547364	31
-46	zIam26hotD	1db82554e5a9437d67da6e	f	1794588920395	1794769759838	10
+46	zIam26hotD	1db82554e5a9437d67da6e	f	1794588920395	1795116623001	26
 54	SW2SEkrSBZ	1db82554e5a9437d67da6e	f	1794600858039	1794601008621	2
 49	2566st17zd	g_JkbnaSqbHiB8	t	1794595784218	1794595784218	1
 48	4EiKKuYYx6	tamxbgxn7ds9shhxgzz665	f	1794595190693	1794595919069	3
@@ -3829,7 +4715,32 @@ COPY public.room_welcome_visits (id, room_id, identity_key, is_guest, first_seen
 79	00qhpSwLi6	1db82554e5a9437d67da6e	f	1794685106416	1794687719225	3
 82	zIam26hotD	g_PTEl5J8Tms2q	t	1794700409062	1794700409062	1
 80	fxKMqh6WaA	tamxbgxn7ds9shhxgzz665	f	1794699599248	1794699599248	1
-47	zIam26hotD	tamxbgxn7ds9shhxgzz665	f	1794589578124	1794777006669	24
+84	zIam26hotD	g_BRllbrx40GBc	t	1794951166140	1794951166140	1
+85	zIam26hotD	g_rxZvH72ZMA14	t	1794951166139	1794951166139	1
+86	xJlWd9qR1X	tamxbgxn7ds9shhxgzz665	f	1795024684924	1795024684924	1
+103	Qrdwgzd8X8	1db82554e5a9437d67da6e	f	1795116643421	1795135569287	18
+106	Qrdwgzd8X8	de880c63979c3e9ff6667baa	f	1795117141384	1795136476052	11
+87	zIam26hotD	g_6xNrLuJiY200	t	1795028455564	1795028455564	1
+88	zIam26hotD	g_qQ65KIAG53lZ	t	1795029042793	1795029042793	1
+89	zIam26hotD	g_GcCFl81NgtEP	t	1795030252910	1795030252910	1
+90	zIam26hotD	g_siyOcCh0COZG	t	1795032627818	1795032627818	1
+91	zIam26hotD	g_39nWv47LHecT	t	1795033332220	1795033332220	1
+92	zIam26hotD	g_us6SPi6dgYkm	t	1795034433466	1795034433466	1
+93	zIam26hotD	g_z4H3N4tewD9Y	t	1795034718727	1795034718727	1
+94	zIam26hotD	g_jqEG9ZUfXh9K	t	1795035693833	1795035693833	1
+95	zIam26hotD	g_diOlq9kPAXLW	t	1795036801314	1795036801314	1
+97	zIam26hotD	g_cKzckUXNHa1t	t	1795037453068	1795037453068	1
+98	zIam26hotD	g_QW67ICouW7YI	t	1795038912750	1795038912750	1
+99	3Yk7mFiut8	1db82554e5a9437d67da6e	f	1795039246205	1795039246205	1
+100	3Yk7mFiut8	g_QW67ICouW7YI	t	1795039261533	1795039281856	2
+101	3Yk7mFiut8	tamxbgxn7ds9shhxgzz665	f	1795039317886	1795039317886	1
+102	zIam26hotD	g_vBk3XwTgvVRw	t	1795116214889	1795116214889	1
+107	Qrdwgzd8X8	g_3rTNCwory4bW	t	1795117143987	1795117143987	1
+108	zIam26hotD	629a9a3ecc6278bf7681687d	f	1795117182762	1795117182762	1
+96	zIam26hotD	de880c63979c3e9ff6667baa	f	1795036976056	1795118654400	6
+47	zIam26hotD	tamxbgxn7ds9shhxgzz665	f	1794589578124	1795118671316	48
+105	Qrdwgzd8X8	629a9a3ecc6278bf7681687d	f	1795117128660	1795119233388	2
+104	Qrdwgzd8X8	tamxbgxn7ds9shhxgzz665	f	1795116980314	1795132077548	5
 \.
 
 
@@ -3838,7 +4749,8 @@ COPY public.room_welcome_visits (id, room_id, identity_key, is_guest, first_seen
 --
 
 COPY public.rooms (idroom, about, "user", pass, id, owner, topic, pic, rmli, mic, welcome, broadcast, deleted, needpass, color, max, stage_count, stage_state, room_owner_meta, message_mode) FROM stdin;
-4	غرفة دردشة وتواصل	seohost		zIam26hotD	#1	غرفة المسابقات	picroom/1794588408136_1ed415.jpg	0	5	أهلاً وسهلاً بالجميع	f	f	f	#0A6E8C	40	5	{"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0}	{"ownerId":"#1","ownerUser":"system","ownerTopic":"System","badge_id":"","badge":{"name":"","bg":"","icon":"","bg_type":"static"},"assignments":[]}	real
+21	غرفة دردشة وتواصل	مازن		Qrdwgzd8X8	مازن	الغرفة العامة	pic.png	0	5	أهلاً وسهلاً بالجميع	f	f	f	#0a8a41	40	5	{"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0}	{"ownerId":"#مازن","ownerUser":"system","ownerTopic":"System","badge_id":"","badge":{"name":"","bg":"","icon":"","bg_type":"static"},"assignments":[]}	local
+4	غرفة دردشة وتواصل	seohost		zIam26hotD	#1	غرفة المسابقات	picroom/1794588408136_1ed415.jpg	0	5	أهلاً وسهلاً بالجميع	t	f	f	#0A6E8C	40	5	{"1":0,"2":0,"3":0,"4":0,"5":0,"6":0,"7":0,"8":0,"9":0,"10":0,"11":0,"12":0}	{"ownerId":"#1","ownerUser":"system","ownerTopic":"System","badge_id":"","badge":{"name":"","bg":"","icon":"","bg_type":"static"},"assignments":[]}	local
 \.
 
 
@@ -3847,7 +4759,7 @@ COPY public.rooms (idroom, about, "user", pass, id, owner, topic, pic, rmli, mic
 --
 
 COPY public.settings (id, site, dro3, them, cover, emo, sico, room_badges, site_badges, gifts_git, gift_categories) FROM stdin;
-1	{"siteScript":"1777583218756.json","bg":"0A6E8C","buttons":"#b60202","background":"#910808","walllikes":"{\\"likeMsgRoom\\":\\"8\\",\\"likeTopicEdit\\":\\"100\\",\\"likeUpPic\\":\\"10\\",\\"likeUpImgBc\\":\\"500\\",\\"lengthMsgRoom\\":\\"250\\",\\"lengthMsgPm\\":\\"250\\",\\"lengthMsgBc\\":\\"250\\",\\"lengthUserReg\\":\\"100\\",\\"lengthUserG\\":\\"100\\",\\"bclikes\\":\\"10\\"}","wallminutes":"0","bclikes":"10","msgst":"5","pmlikes":"2000","miclikes":"5000","notlikes":"7000","fileslikes":"90000","allowg":true,"allowreg":true,"micprovider":"WEBRTC","roomMessageTheme":"classic","evaluation_awards":{"enabled":true,"actions":{"room_message":{"points":1,"cooldownMs":180000,"dailyLimit":40,"minRoomMembers":3,"minLength":3,"requireDifferentMember":true},"wall_post":{"points":3,"cooldownMs":180000,"dailyLimit":15,"minRoomMembers":0,"minLength":3,"requireDifferentMember":true},"private_message":{"points":1,"cooldownMs":600000,"dailyLimit":10,"minRoomMembers":0,"minLength":3,"requireDifferentMember":true},"online_duration":{"points":1,"cooldownMs":900000,"dailyLimit":20,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true},"daily_login":{"points":5,"cooldownMs":0,"dailyLimit":5,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true},"game_win":{"points":4,"cooldownMs":0,"dailyLimit":40,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true}}},"title":"شات يمن ايفون"}	["1771636115918.jpg","1794604974277_2af407.gif"]	["1771636084601.gif","1775173367834.jpg","1775173372955.jpg","1775173377825.jpg"]	["1771636098677.gif","1775173329999.jpg","1775173341108.gif","1775173346636.jpg","1775173357479.gif"]	["1773355492653.gif","1773365316706.gif","1773365326132.gif","1773365335073.gif","1773365344347.gif","1773365356133.gif","1773365364558.gif"]	["1771635980871.jpg","1771715317451.gif"]	[{"id":"rb_1772239218404","name":"مالك الغرفة","bg":"linear-gradient(60deg, #ff0000, #fff200, #a600ff, #ffffff)","icon":"/room_badges/1772243111563.gif","bg_type":"animated"},{"id":"rb_1772243272470","name":"مشرف الغرفة","bg":"linear-gradient(60deg, #c80909, #c80909, #c80909, #c80909)","icon":"/room_badges/1772243270229.gif","bg_type":"static"}]	[{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"},{"id":"sb_1773956561289","name":"بببب","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1773956558185.gif","bg_type":"animated"},{"id":"sb_1794595667690","name":"مالك الاستضافة","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"","bg_type":"animated"}]	[{"id":"rose_standard","file":"rose.png","coin":1,"name":"وردة","category":"افتراضي"},{"id":"rxdb4mq71776445026015","file":"1776445025983.jpg","coin":1,"name":"وردة","category":"فاخر"},{"id":"foz1x4ka1776445012437","file":"1776445012406.jpg","coin":1000,"name":"شسي شسي","category":"افتراضي"},{"id":"jzuye7pv1776445003832","file":"1776445003798.jpg","coin":1000,"name":"شسي سي","category":"فاخر"},{"id":"2op2uill1776444994791","file":"1776444994729.jpg","coin":1000,"name":"ي سيشي","category":"فاخر"},{"id":"v35jolgo1776441783325","file":"1776441783301.jpg","coin":1300,"name":"مايك","category":"افتراضي"},{"id":"tpbj825j1776441767615","file":"1776441767591.jpg","coin":1200,"name":"طيارة","category":"فاخر"},{"id":"4xcc0vdd1776441721112","file":"1776441721087.jpg","coin":1500,"name":"سيارة","category":"فاخر"}]	["افتراضي","فاخر"]
+1	{"siteScript":"1777583218756.json","bg":"0A6E8C","buttons":"#b60202","background":"#910808","walllikes":"{\\"likeMsgRoom\\":\\"8\\",\\"likeTopicEdit\\":\\"100\\",\\"likeUpPic\\":\\"10\\",\\"likeUpImgBc\\":\\"500\\",\\"lengthMsgRoom\\":\\"250\\",\\"lengthMsgPm\\":\\"250\\",\\"lengthMsgBc\\":\\"250\\",\\"lengthUserReg\\":\\"100\\",\\"lengthUserG\\":\\"100\\",\\"bclikes\\":\\"10\\"}","wallminutes":"0","bclikes":"10","msgst":"5","pmlikes":"2000","miclikes":"5000","notlikes":"7000","fileslikes":"90000","allowg":true,"allowreg":true,"micprovider":"WEBRTC","roomMessageTheme":"classic","evaluation_awards":{"enabled":true,"actions":{"room_message":{"points":1,"cooldownMs":180000,"dailyLimit":40,"minRoomMembers":3,"minLength":3,"requireDifferentMember":true},"wall_post":{"points":3,"cooldownMs":180000,"dailyLimit":15,"minRoomMembers":0,"minLength":3,"requireDifferentMember":true},"private_message":{"points":1,"cooldownMs":600000,"dailyLimit":10,"minRoomMembers":0,"minLength":3,"requireDifferentMember":true},"online_duration":{"points":1,"cooldownMs":900000,"dailyLimit":20,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true},"daily_login":{"points":5,"cooldownMs":0,"dailyLimit":5,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true},"game_win":{"points":4,"cooldownMs":0,"dailyLimit":40,"minRoomMembers":0,"minLength":0,"requireDifferentMember":true}}},"title":"شات يمن ايفون"}	["1771636115918.jpg","1794604974277_2af407.gif"]	["1771636084601.gif","1775173367834.jpg","1775173372955.jpg","1775173377825.jpg"]	["1771636098677.gif","1775173329999.jpg","1775173341108.gif","1775173346636.jpg","1775173357479.gif"]	["1773355492653.gif","1773365316706.gif","1773365326132.gif","1773365335073.gif","1773365344347.gif","1773365356133.gif","1773365364558.gif","1795037909951_126f35.gif","1795037913446_e9df79.gif"]	["1771635980871.jpg","1771715317451.gif"]	[{"id":"rb_1772239218404","name":"مالك الغرفة","bg":"linear-gradient(60deg, #ff0000, #fff200, #a600ff, #ffffff)","icon":"/room_badges/1772243111563.gif","bg_type":"animated"},{"id":"rb_1772243272470","name":"مشرف الغرفة","bg":"linear-gradient(60deg, #c80909, #c80909, #c80909, #c80909)","icon":"/room_badges/1772243270229.gif","bg_type":"static"}]	[{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"},{"id":"sb_1773956561289","name":"بببب","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1773956558185.gif","bg_type":"animated"},{"id":"sb_1794595667690","name":"مالك الاستضافة","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"","bg_type":"animated"}]	[{"id":"rose_standard","file":"rose.png","coin":1,"name":"وردة","category":"افتراضي"},{"id":"rxdb4mq71776445026015","file":"1776445025983.jpg","coin":1,"name":"وردة","category":"فاخر"},{"id":"foz1x4ka1776445012437","file":"1776445012406.jpg","coin":1000,"name":"شسي شسي","category":"افتراضي"},{"id":"jzuye7pv1776445003832","file":"1776445003798.jpg","coin":1000,"name":"شسي سي","category":"فاخر"},{"id":"2op2uill1776444994791","file":"1776444994729.jpg","coin":1000,"name":"ي سيشي","category":"فاخر"},{"id":"v35jolgo1776441783325","file":"1776441783301.jpg","coin":1300,"name":"مايك","category":"افتراضي"},{"id":"tpbj825j1776441767615","file":"1776441767591.jpg","coin":1200,"name":"طيارة","category":"فاخر"},{"id":"4xcc0vdd1776441721112","file":"1776441721087.jpg","coin":1500,"name":"سيارة","category":"فاخر"}]	["افتراضي","فاخر"]
 \.
 
 
@@ -3857,6 +4769,14 @@ COPY public.settings (id, site, dro3, them, cover, emo, sico, room_badges, site_
 
 COPY public.site (id, banner, host, ids, logo) FROM stdin;
 1	1773956666064.jpg	localhost	1	1773956645236.webp
+\.
+
+
+--
+-- Data for Name: site_funding_log; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.site_funding_log (id, amount_coins, external_ref, note, funded_by, idempotency_key, created_at) FROM stdin;
 \.
 
 
@@ -3938,6 +4858,21 @@ COPY public.stats (id, state, topic, username, room, ip, "time") FROM stdin;
 407	تنبيه	مازن	seohostseohost	00qhpSwLi6	127.0.0.1	1794685260066
 409	انشاء بث صوتي	seohostseohost	safari2023	بث seohostseohost الصوتي	127.0.0.1	1794699599214
 411	فك حظر	safari2023	النظام	9904e4d66ec744bba66eae78a039424a	127.0.0.1	1794700390299
+414	تعديل مجموعة 	مازن	مازن	chatmaster	127.0.0.1	1795026527559
+416	تعديل مجموعة 	مازن	مازن	chatmaster	127.0.0.1	1795026565544
+417	تعديل صلاحية	مازن	[Hide] seohostseohost		127.0.0.1	1795026610233
+418	تعديل صلاحية	seohostseohost	[chatmaster] مازن		127.0.0.1	1795026632673
+419	تعديل صلاحية	seohostseohost	[Hide] مازن		127.0.0.1	1795026660423
+421	إلغاء توثيق عضويه	seohostseohost	مازن		127.0.0.1	1795027258507
+422	عضويه مميزه	seohostseohost	مازن		127.0.0.1	1795027258540
+424	تعديل غرفه	مازن	مازن	غرفة المسابقات	127.0.0.1	1795027872093
+426	تعديل غرفه	seohostseohost	safari2023	غرفة المسابقات	127.0.0.1	1795028204314
+428	إظافة فيس	seohostseohost	safari2023		127.0.0.1	1795037910031
+430	فك حظر	safari2023	النظام	922634d6acc94f5eba48405615029f7a	127.0.0.1	1795037979167
+432	انشاء بث صوتي	مازن	مازن	ةى	127.0.0.1	1795039246190
+434	حذف غرفه	مازن	مازن	ةى	127.0.0.1	1795039827107
+436	تعديل الايكات	seohostseohost	كمال (10000)	zIam26hotD	127.0.0.1	1795042006429
+438	تعديل غرفه	مازن	مازن	الغرفة العامة	127.0.0.1	1795124531016
 327	تعديل وضع حماية الدوز	مازن	STRICT		127.0.0.1	1794502059873
 328	الغاء تفعيل تعليقات الجدار	مازن	مازن		127.0.0.1	1794502070883
 330	تعديل غرفه	seohost	safari2023	الغرفة العامة	127.0.0.1	1794504777706
@@ -3978,6 +4913,18 @@ COPY public.stats (id, state, topic, username, room, ip, "time") FROM stdin;
 406	انشاء بث صوتي	seohostseohost	safari2023	بث seohostseohost الصوتي	127.0.0.1	1794682171404
 408	حذف غرفه	seohostseohost	safari2023	بث seohostseohost الصوتي	127.0.0.1	1794691303169
 410	تنبيه	seohostseohost	سامر	zIam26hotD	127.0.0.1	1794700199314
+412	انشاء بث صوتي	seohostseohost	safari2023	يبس	127.0.0.1	1795024684902
+413	حذف غرفه	seohostseohost	safari2023	يبس	127.0.0.1	1795024691326
+415	تعديل مجموعة 	مازن	مازن	chatmaster	127.0.0.1	1795026537191
+420	توثيق عضويه	seohostseohost	مازن		127.0.0.1	1795027256307
+423	توثيق عضويه	مازن	مازن		127.0.0.1	1795027299507
+425	تعديل غرفه	seohostseohost	safari2023	غرفة المسابقات	127.0.0.1	1795027902273
+427	تعديل غرفه	مازن	مازن	غرفة المسابقات	127.0.0.1	1795028255234
+429	إظافة فيس	seohostseohost	safari2023		127.0.0.1	1795037913499
+431	تعديل غرفه	seohostseohost	safari2023	غرفة المسابقات	127.0.0.1	1795038113519
+433	إنشاء طلب شحن	seohostseohost	TP1795039594329C73A48		127.0.0.1	1795039594354
+435	تعديل صلاحية	seohostseohost	[] مازن		127.0.0.1	1795041934446
+437	انشاء غرفه	مازن	مازن	الغرفة العامة	127.0.0.1	1795116639034
 314	تنبيه	seohost	مازن	D8D8A9A9C0	127.0.0.1	1794440357256
 315	تعديل الايكات	seohost	مازن (100000)	D8D8A9A9C0	127.0.0.1	1794440378279
 316	ترقية حساب	seohost	[ترقية ذهبية] مازن		127.0.0.1	1794441127905
@@ -3999,8 +4946,9 @@ COPY public.stats (id, state, topic, username, room, ip, "time") FROM stdin;
 COPY public.storie (id, sid, photo, name, link, "lastUpdated", item, seen, "currentPreview") FROM stdin;
 4	z7fwmux1g29vwcpjx77z35ffi10itdx	/pic/1773376784089.jpg	medo	 		[{"itid":"rvdk3exxza4kgkno252q","type":"photo","length":3,"src":"/sendfile/1777830368847.jpg","preview":" ","link":"","linkText":false,"time":1777830333.858,"seen":false}]	f	1777830333.858
 9	af9114346116b469bcd1deb3	/pic/1794603563676_1aca1b.jpg	علي	text:ينسنس	1794620762360	[{"id":"6L7xLbo6Yt","type":"text","src":"","caption":"🎵 غيمه","bgColor":"linear-gradient(135deg,#667eea,#764ba2)","textColor":"#ffffff","length":6,"time":1794620694891},{"id":"fDs9i5MB4A","type":"text","src":"","caption":"ينسنس","bgColor":"linear-gradient(135deg,#30cfd0,#330867)","textColor":"#ffffff","length":6,"time":1794620762360}]	f	[]
+6	1db82554e5a9437d67da6e	/pic/1794440403648_6c221e.jpg	مازن	text:سيبسيب	1795025014012	[{"id":"x4EiOB9WK6","type":"video","src":"/sendfile/1794439466562_419aec.mp4","length":15,"time":1794439466581},{"id":"w1Q1t5mo53","type":"image","src":"/sendfile/1794441780715_4b9180.jpg","length":6,"time":1794441780759},{"id":"Sz9fPTLNJw","type":"video","src":"/sendfile/1794589511548_e1bdf5.mp4","caption":"حب حب","length":15,"time":1794589511604},{"id":"3BZmRkzSIt","type":"audio","src":"/sendfile/1794613080762_6e6404.mp4","caption":"8OFADSX3U","length":15,"time":1794613080878},{"id":"NbutTDHb9u","type":"text","src":"","caption":"الا بذكر الله تطمئن القلوب🌸🎵","bgColor":"linear-gradient(135deg,#667eea,#764ba2)","textColor":"#ffffff","length":6,"time":1794615099742},{"id":"y9OdtmzEWd","type":"text","src":"","caption":"لست نصا يمكن ازالتة انا الفكرة🌸🤍","bgColor":"linear-gradient(135deg,#667eea,#764ba2)","textColor":"#ffffff","length":6,"time":1794617888237},{"id":"Nd4Kw7XtsC","type":"text","src":"","caption":"سيبسيب","bgColor":"linear-gradient(135deg,#30cfd0,#330867)","textColor":"#ff4444","length":6,"time":1795025014012}]	f	[]
 7	1fed12b52786838144d1533f	pic.png	أمير القصص	text:منورين كلكلم	1794526526446	[{"id":"HRp7obe9Xs","type":"text","src":"","caption":"منورين كلكلم","bgColor":"linear-gradient(135deg,#e0c3fc,#8ec5fc)","textColor":"#ffffff","length":6,"time":1794520536734},{"id":"8PNTIKHcqg","type":"text","src":"","caption":"منورين كلكلم","bgColor":"linear-gradient(135deg,#f5576c,#ff6f91)","textColor":"#ffffff","length":6,"time":1794521148432},{"id":"sbNokxnQoP","type":"text","src":"","caption":"منورين كلكلم","bgColor":"linear-gradient(135deg,#30cfd0,#330867)","textColor":"#ffffff","length":6,"time":1794521758467},{"id":"6DaumFBhBT","type":"text","src":"","caption":"منورين كلكلم","bgColor":"linear-gradient(135deg,#a18cd1,#fbc2eb)","textColor":"#ffffff","length":6,"time":1794525271359},{"id":"dzuIfeoGOC","type":"text","src":"","caption":"منورين كلكلم","bgColor":"linear-gradient(135deg,#30cfd0,#330867)","textColor":"#ffffff","length":6,"time":1794526526446}]	f	[]
-6	1db82554e5a9437d67da6e	/pic/1794440403648_6c221e.jpg	مازن	text:لست نصا يمكن ازالتة انا الفكرة🌸🤍	1794617888237	[{"id":"x4EiOB9WK6","type":"video","src":"/sendfile/1794439466562_419aec.mp4","length":15,"time":1794439466581},{"id":"w1Q1t5mo53","type":"image","src":"/sendfile/1794441780715_4b9180.jpg","length":6,"time":1794441780759},{"id":"Sz9fPTLNJw","type":"video","src":"/sendfile/1794589511548_e1bdf5.mp4","caption":"حب حب","length":15,"time":1794589511604},{"id":"3BZmRkzSIt","type":"audio","src":"/sendfile/1794613080762_6e6404.mp4","caption":"8OFADSX3U","length":15,"time":1794613080878},{"id":"NbutTDHb9u","type":"text","src":"","caption":"الا بذكر الله تطمئن القلوب🌸🎵","bgColor":"linear-gradient(135deg,#667eea,#764ba2)","textColor":"#ffffff","length":6,"time":1794615099742},{"id":"y9OdtmzEWd","type":"text","src":"","caption":"لست نصا يمكن ازالتة انا الفكرة🌸🤍","bgColor":"linear-gradient(135deg,#667eea,#764ba2)","textColor":"#ffffff","length":6,"time":1794617888237}]	f	[]
+10	de880c63979c3e9ff6667baa	pic.png	كمال	/sendfile/1795040535986_c715fe.mp4	1795040536102	[{"id":"pUeTv9hTal","type":"video","src":"/sendfile/1795040400287_cd71d7.mp4","caption":"❤️❤️💯","length":15,"time":1795040400558},{"id":"mN5DdqlU8l","type":"video","src":"/sendfile/1795040535986_c715fe.mp4","caption":"ميميز ينني يننيي نينين بننب رننب نبن 🤩🪉❤️💯🌸","length":15,"time":1795040536102}]	f	[]
 \.
 
 
@@ -4083,6 +5031,29 @@ COPY public.storieview (id, sid, topic, photo, idsto, item, "time") FROM stdin;
 75	g_6X5oqTsY0lr3	safari2023	pic.png	1db82554e5a9437d67da6e	4	1794771594234
 76	g_6X5oqTsY0lr3	safari2023	pic.png	1db82554e5a9437d67da6e	5	1794771596014
 77	g_6X5oqTsY0lr3	safari2023	pic.png	af9114346116b469bcd1deb3	0	1794771605857
+78	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1db82554e5a9437d67da6e	6	1795025018723
+79	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1db82554e5a9437d67da6e	6	1795025411543
+80	g_QW67ICouW7YI	ميدو	pic.png	1db82554e5a9437d67da6e	0	1795038924995
+81	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	0	1795040052683
+82	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	1	1795040103085
+83	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	2	1795040105115
+84	de880c63979c3e9ff6667baa	كمال	pic.png	z7fwmux1g29vwcpjx77z35ffi10itdx	0	1795040306291
+85	de880c63979c3e9ff6667baa	كمال	pic.png	1fed12b52786838144d1533f	0	1795040310285
+86	de880c63979c3e9ff6667baa	كمال	pic.png	1fed12b52786838144d1533f	1	1795040311326
+87	de880c63979c3e9ff6667baa	كمال	pic.png	1fed12b52786838144d1533f	2	1795040312068
+88	de880c63979c3e9ff6667baa	كمال	pic.png	1fed12b52786838144d1533f	3	1795040312273
+89	de880c63979c3e9ff6667baa	كمال	pic.png	1fed12b52786838144d1533f	4	1795040312448
+90	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	3	1795040317340
+91	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	4	1795040344746
+92	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	5	1795040345764
+93	de880c63979c3e9ff6667baa	كمال	pic.png	1db82554e5a9437d67da6e	6	1795040346575
+94	de880c63979c3e9ff6667baa	كمال	pic.png	de880c63979c3e9ff6667baa	0	1795040408237
+95	de880c63979c3e9ff6667baa	كمال	pic.png	de880c63979c3e9ff6667baa	1	1795040546910
+96	de880c63979c3e9ff6667baa	كمال	pic.png	af9114346116b469bcd1deb3	0	1795041478960
+97	de880c63979c3e9ff6667baa	كمال	pic.png	af9114346116b469bcd1deb3	1	1795041481157
+98	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	de880c63979c3e9ff6667baa	0	1795042165437
+99	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	de880c63979c3e9ff6667baa	1	1795042175811
+100	629a9a3ecc6278bf7681687d	سامي	pic.png	de880c63979c3e9ff6667baa	0	1795119519206
 \.
 
 
@@ -4097,6 +5068,15 @@ COPY public.story_comment_likes (id, comment_cid, user_uid, created_at) FROM std
 4	sc_VAohJPz1Vl76	1fed12b52786838144d1533f	1794526533722
 5	sc_eYMhusiOrIUU	1fed12b52786838144d1533f	1794526534125
 6	sc_11aXo3vnLuVH	af9114346116b469bcd1deb3	1794616903708
+7	sc_N8F0Qtd22KBN	tamxbgxn7ds9shhxgzz665	1795025421172
+8	sc_iazUkKvEGf0w	1db82554e5a9437d67da6e	1795038774152
+10	sc_11aXo3vnLuVH	1db82554e5a9437d67da6e	1795038782261
+11	sc_cYGhkRdt9uW9	de880c63979c3e9ff6667baa	1795040076574
+12	sc_CEymbCz9Xw9g	de880c63979c3e9ff6667baa	1795040128579
+13	sc_hKmJEmATA17V	de880c63979c3e9ff6667baa	1795040130554
+14	sc_my3ylbnL90Ol	de880c63979c3e9ff6667baa	1795040334791
+15	sc_UwWZbPCxF6LA	de880c63979c3e9ff6667baa	1795118750541
+16	sc_gfOQgBYaHOGu	de880c63979c3e9ff6667baa	1795118751609
 \.
 
 
@@ -4117,14 +5097,27 @@ COPY public.story_comments (id, cid, story_sid, item_id, parent_cid, reply_to_to
 11	sc_yGdJpJIlCS0m	1fed12b52786838144d1533f	HRp7obe9Xs	sc_VAohJPz1Vl76	أمير القصص	tamxbgxn7ds9shhxgzz665	seohost	/pic/1794512127060_378568.jpg	#000000	t	قوة القوة	0	1794588219473
 12	sc_Sbc5nYEPJ3jY	1fed12b52786838144d1533f	HRp7obe9Xs	sc_VAohJPz1Vl76	seohost	tamxbgxn7ds9shhxgzz665	seohost	/pic/1794512127060_378568.jpg	#000000	t	تسلم	0	1794588235303
 13	sc_IZ3Xma5Xcxzz	1db82554e5a9437d67da6e	Sz9fPTLNJw			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	روووعه	0	1794589545709
-14	sc_hKmJEmATA17V	1db82554e5a9437d67da6e	Sz9fPTLNJw			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	❤️	0	1794590535106
 15	sc_IB9S5asG0hDm	1db82554e5a9437d67da6e	Sz9fPTLNJw	sc_hKmJEmATA17V	مازن	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	روعه	0	1794590544904
 17	sc_LUw2ZAt21LCi	1db82554e5a9437d67da6e	Sz9fPTLNJw	sc_hKmJEmATA17V	مازن	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#900909	t	رهيب	0	1794607396951
-18	sc_CEymbCz9Xw9g	1db82554e5a9437d67da6e	Sz9fPTLNJw			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	نايس	0	1794611167673
-19	sc_my3ylbnL90Ol	1db82554e5a9437d67da6e	3BZmRkzSIt			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	قوة	0	1794613113970
 20	sc_9HyFyax6srRK	1db82554e5a9437d67da6e	NbutTDHb9u			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	❤️	0	1794615694985
 21	sc_vsqWaf0TRYAI	1db82554e5a9437d67da6e	NbutTDHb9u	sc_9HyFyax6srRK	مازن	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	نينين	0	1794615699590
-22	sc_11aXo3vnLuVH	1db82554e5a9437d67da6e	x4EiOB9WK6			af9114346116b469bcd1deb3	علي	/pic/1794603563676_1aca1b.jpg	#000000	f	❤️	1	1794616892100
+14	sc_hKmJEmATA17V	1db82554e5a9437d67da6e	Sz9fPTLNJw			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	❤️	1	1794590535106
+23	sc_N8F0Qtd22KBN	1db82554e5a9437d67da6e	Nd4Kw7XtsC			tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#f0ebeb	t	🔥👏😢	1	1795025416252
+24	sc_iazUkKvEGf0w	1db82554e5a9437d67da6e	x4EiOB9WK6			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	❤️🔥🙌😢	1	1795038770532
+27	sc_SZb68sYbYEvh	1db82554e5a9437d67da6e	Sz9fPTLNJw	sc_LUw2ZAt21LCi	seohostseohost	de880c63979c3e9ff6667baa	كمال	pic.png	#000000	f	رهيب	0	1795040141687
+19	sc_my3ylbnL90Ol	1db82554e5a9437d67da6e	3BZmRkzSIt			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	قوة	1	1794613113970
+22	sc_11aXo3vnLuVH	1db82554e5a9437d67da6e	x4EiOB9WK6			af9114346116b469bcd1deb3	علي	/pic/1794603563676_1aca1b.jpg	#000000	f	❤️	2	1794616892100
+25	sc_cYGhkRdt9uW9	1db82554e5a9437d67da6e	x4EiOB9WK6			de880c63979c3e9ff6667baa	كمال	pic.png	#000000	f	كفو	1	1795040073441
+18	sc_CEymbCz9Xw9g	1db82554e5a9437d67da6e	Sz9fPTLNJw			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	f	نايس	1	1794611167673
+28	sc_LetVIndSHY9p	de880c63979c3e9ff6667baa	pUeTv9hTal			de880c63979c3e9ff6667baa	كمال	pic.png	#000000	f	❤️❤️💯	0	1795040463272
+30	sc_UwWZbPCxF6LA	de880c63979c3e9ff6667baa	pUeTv9hTal			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	🔥	1	1795042209809
+29	sc_gfOQgBYaHOGu	de880c63979c3e9ff6667baa	pUeTv9hTal			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	❤️	1	1795042205722
+31	sc_hjhpe38zZteD	de880c63979c3e9ff6667baa	pUeTv9hTal			629a9a3ecc6278bf7681687d	سامي	pic.png	#000000	f	🔥👏😍	0	1795119534479
+32	sc_ROBG5kmW3NcU	de880c63979c3e9ff6667baa	pUeTv9hTal			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	ف١	0	1795124614258
+33	sc_BtvRYvs9YKPU	de880c63979c3e9ff6667baa	pUeTv9hTal			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	ف1	0	1795124625187
+34	sc_rStXA9tvO7RB	de880c63979c3e9ff6667baa	pUeTv9hTal			1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	#000000	t	ف9	0	1795129874209
+35	sc_sd5jjxi4hyRJ	de880c63979c3e9ff6667baa	pUeTv9hTal			de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	#000000	f	🔥	0	1795136605675
+36	sc_f1FzrS29UEv1	de880c63979c3e9ff6667baa	pUeTv9hTal	sc_sd5jjxi4hyRJ	كمال	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	#000000	f	ارحب	0	1795136614433
 \.
 
 
@@ -4155,6 +5148,15 @@ COPY public.story_likes (id, story_sid, item_id, user_uid, topic, photo, created
 23	1db82554e5a9437d67da6e	y9OdtmzEWd	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1794676637517
 24	af9114346116b469bcd1deb3	6L7xLbo6Yt	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1794685022069
 25	1db82554e5a9437d67da6e	NbutTDHb9u	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	1794699566249
+27	1db82554e5a9437d67da6e	3BZmRkzSIt	de880c63979c3e9ff6667baa	كمال	pic.png	1795040323597
+28	de880c63979c3e9ff6667baa	mN5DdqlU8l	de880c63979c3e9ff6667baa	كمال	pic.png	1795040566775
+29	af9114346116b469bcd1deb3	fDs9i5MB4A	de880c63979c3e9ff6667baa	كمال	pic.png	1795041482925
+30	1fed12b52786838144d1533f	HRp7obe9Xs	de880c63979c3e9ff6667baa	كمال	pic.png	1795041486409
+32	de880c63979c3e9ff6667baa	mN5DdqlU8l	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1795042215964
+33	de880c63979c3e9ff6667baa	pUeTv9hTal	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1795042232706
+34	1db82554e5a9437d67da6e	x4EiOB9WK6	de880c63979c3e9ff6667baa	كمال	/pic/1795042050089_c0c0c7.jpg	1795118800683
+35	de880c63979c3e9ff6667baa	pUeTv9hTal	629a9a3ecc6278bf7681687d	سامي	pic.png	1795119526588
+36	de880c63979c3e9ff6667baa	pUeTv9hTal	1db82554e5a9437d67da6e	مازن	/pic/1794440403648_6c221e.jpg	1795125879727
 \.
 
 
@@ -4164,9 +5166,9 @@ COPY public.story_likes (id, story_sid, item_id, user_uid, topic, photo, created
 
 COPY public.sub (id, iduser, sub, topic, topic1, timestart, timefinish, timeis) FROM stdin;
 1	5	admin	medo	medo	1777697292790	1777697292780	0
-2	8	Hide	مازن	مازن	1794441484910	1797033484910	30
 4	21	ترقية ذهبية	زهره	زهره	1794593313042	1797185313042	30
-3	2	chatmaster	safari2023	seohost	1794614996638	1797206996638	30
+3	2	Hide	safari2023	seohost	1795026610230	1797618610230	30
+2	8		مازن	مازن	1795041934442	1797633934442	30
 \.
 
 
@@ -4335,6 +5337,28 @@ COPY public.top10wall (id, uid, otype, pic, topic) FROM stdin;
 159	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
 160	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
 161	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+162	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+163	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+164	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+165	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+166	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+167	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+168	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+169	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+170	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+171	ormtckbsh8x0plk7e45tggph562lufc	bc	/pic/1794512127060_378568.jpg	seohostseohost
+172	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+173	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+174	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+175	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+176	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+177	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+178	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+179	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+180	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+181	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+182	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
+183	867bc01476cd530af6d27b5bad66933	bc	/pic/1794440403648_6c221e.jpg	مازن
 \.
 
 
@@ -4347,6 +5371,8 @@ COPY public.topup_order_events (id, order_id, order_no, event_type, old_status, 
 8	4	TP1794619303384B93406	approved	pending	approved	agent	AG2CCF562E6E medos	الحجز قبل الاعتماد: 100 | الحجز بعد الاعتماد: 0	1794619374614
 9	5	TP17946200902571A1AE6	created		pending	user	#22 علي	وسيلة الدفع: محفظة جيب | سعر الباقة: 20 SAR | عمولة الوكيل: 2 SAR | عمولة كوين للوكيل: 10000 | تم حجز 100000 coin من رصيد الوكيل | المرجع: 123456 | سند مرفق | 123456	1794620090257
 10	5	TP17946200902571A1AE6	approved	pending	approved	owner	#8 مازن	الحجز قبل الاعتماد: 100000 | الحجز بعد الاعتماد: 0	1794620122040
+11	6	TP1795039594329C73A48	created		pending	user	#2 safari2023	وسيلة الدفع: محفظة جيب | سعر الباقة: 20 SAR | عمولة الوكيل: 2 SAR | عمولة كوين للوكيل: 10000 | تم حجز 100000 coin من رصيد الوكيل | سند مرفق	1795039594329
+12	6	TP1795039594329C73A48	expired	pending	cancelled	system	system	انتهت مهلة الطلب تلقائيًا | الحجز قبل الإلغاء: 100000 | الحجز بعد الإلغاء: 0	1795041420093
 \.
 
 
@@ -4357,6 +5383,7 @@ COPY public.topup_order_events (id, order_id, order_no, event_type, old_status, 
 COPY public.topup_orders (id, order_no, user_uid, user_idreg, user_topic, user_username, agent_id, agent_code, agent_name, agent_phone, agent_country_code, agent_city, package_id, package_title, package_coins, package_price_local, customer_price_local, agent_profit_local, agent_commission_type, agent_commission_value, currency, package_country_code, package_city, payment_method_id, payment_method_name, payment_method_account_name, payment_method_identifier, receipt_path, receipt_uploaded_at, payment_reference, payment_note, status, processed_by, processed_note, reject_reason, requested_at, processed_at, source_ip, agent_commission_coins) FROM stdin;
 4	TP1794619303384B93406	af9114346116b469bcd1deb3	22	علي	علي	2	AG2CCF562E6E	Mohammed		SA		2	باقة البدايه	100	10.0000	10.0000	1.0000	percent	10.0000	USD	SA		2	محفظة جيب	محمد عبدالعزيز محمد احمد القباطي	780780525	/topup_receipts/topup-1794619287575-6f8820fe.jpg	1794619303384	123456	تم التحويل	approved	AG2CCF562E6E medos			1794619303384	1794619374614	127.0.0.1	10
 5	TP17946200902571A1AE6	af9114346116b469bcd1deb3	22	علي	علي	2	AG2CCF562E6E	Mohammed		SA		3	باقه عرض	100000	20.0000	20.0000	2.0000	percent	10.0000	SAR	SA		2	محفظة جيب	محمد عبدالعزيز محمد احمد القباطي	780780525	/topup_receipts/topup-1794619991950-d3d098af.jpg	1794620090257	123456	123456	approved	#8 مازن			1794620090257	1794620122040	127.0.0.1	10000
+6	TP1795039594329C73A48	tamxbgxn7ds9shhxgzz665	2	seohostseohost	safari2023	2	AG2CCF562E6E	Mohammed		SA		3	باقه عرض	100000	20.0000	20.0000	2.0000	percent	10.0000	SAR	SA		2	محفظة جيب	محمد عبدالعزيز محمد احمد القباطي	780780525	/topup_receipts/topup-1795039592402-87e25177.gif	1795039594329			cancelled	system	انتهت مهلة الطلب تلقائيًا	انتهت مهلة الطلب تلقائيًا	1795039594329	1795041420093	127.0.0.1	10000
 \.
 
 
@@ -4375,7 +5402,6 @@ COPY public.topup_settlement_ledger (id, txid, order_id, order_no, event_type, a
 --
 
 COPY public.user_notes (id, nid, uid, author_topic, author_pic, author_ucol, author_verified, type, text, caption, audio_url, duration, tag, likes_count, comments_count, created_at) FROM stdin;
-5	note_PQFVbsKZ13J8	tamxbgxn7ds9shhxgzz665	seohostseohost	/pic/1794512127060_378568.jpg	#ffffff	t	audio		موسيقى وطرب	/sendfile/1794695538985_3d0907.mp3	15	موسيقى وطرب	1	6	1794695539002
 \.
 
 
@@ -4384,21 +5410,23 @@ COPY public.user_notes (id, nid, uid, author_topic, author_pic, author_ucol, aut
 --
 
 COPY public.users (idreg, bg, mcol, ucol, evaluation, ico, ip, fp, id, lid, uid, msg, pic, pich, power, rep, topic, username, password, token, youtub, them, cover, "loginG", muted, documentationc, lastssen, joinuser, site_badge_id, site_badge, coins, gift_ico, gcol, last_eval_login_day, auto_power, wall_post_likes, gifts_received_count, eval_awards_json, busy, alerts, nopmcall, nopmvideocall) FROM stdin;
-1	#FFFFFF	#000000	#000000	0		192.168.1.1			5ogwo9ii4vqdubv10ovnx6g2fkta8j4	qp46tzm6fb0r4h1g0468za	(عضو جديد)	pic.png	pich.png	ispower	0	mohammed	mohammed	sha1$b93f1d5c$1$0bbd5078ea2a506e2aad595bfe7b4fe3816f00c7	cf0847f86c9ca59883adf1a7732e4259				f	f	1	\N	1771634424509			0		#FFFFFF			0	0	\N	f	f	f	f
-20	#FFFFFF	#000000	#000000	6		127.0.0.1	735bf07caf904c96a641dcde10db9cd2	Yc5uaV6bUne282cUAAAz	2c50fcbec5105cb3059f	1fed12b52786838144d1533f	(عضو جديد)	pic.png	pich.png		0	أمير القصص	storytester	$2a$10$9uAuP71OxtbFb8sPitSR4OXp0a1uxd6.2Mb0ipUaRvrtb2McMA6/2	278a8aa62e79b1e9c61ff07e7cfddefe				f	f	0	1794526520298	1794520286492		\N	0		#FFFFFF	2026-11-12		0	0	{"daily_login":1794520286834,"daily":{"day":"2026-11-12","amounts":{"daily_login":5,"online_duration":1}},"online_duration":1794525673080}	f	f	f	f
-7	#FFFFFF	#000000	#000000	15		::1	Android.8.0.0.ehs.sxr.uhu.Chrome.izu.1nj.92e	kGO0mYRv8XU-JPiOAABL	q3lp0q4trnkk6zpunhqb07jobggjftk	4yw6hre4qx9xj6hnwdrsz8	(عضو جديد)	pic.png	pich.png		0	صالح	صالح	sha1$cefb5908$1$255571dbf56be8520bea16cb3604952eda5412ec	9abccaca9c9463d89ed02f5174e10835				f	f	0	1777709439635	1777688952886			0		#FFFFFF	2026-05-02		0	0	{"__daily":{"day":"2026-05-02","amounts":{"daily_login":5,"online_duration":10}},"daily_login":1777688953904,"online_duration":1777709439630}	f	f	f	f
-6	#FFFFFF	#000000	#000000	0		::1	Android.8.0.0.4u0.iyp.ptr.Chrome.wl2.5j6.51p	1lA01NaGU8hz6CbLAABN	eiqpodczud9lwx7ic0aj1w5z1rk9gex	ox462ainhew5o88e83elq5	(عضو جديد)	/pic/1776894770113.jpg	pich.png		123123123	medo2	medo2	sha1$92a262dc$1$006cf2d9b1b3970759ac3a1598973778a324d2c8	bbe386318df88af4191b8ba981d8c4b9				f	f	0	1776895550240	1776894731915			0		#FFFFFF			0	0	\N	f	f	f	f
-2	#ffffff	#0b0a0a	#f0ebeb	152		127.0.0.1	e6f918f32b93487682f287ed4bc985da	3GTKUuH2u1orSbHXAAAA	ormtckbsh8x0plk7e45tggph562lufc	tamxbgxn7ds9shhxgzz665	لست نصا يمكن ازالتة انا الفكرة لست نصا يمكن ازالتة انا الفكرة	/pic/1794512127060_378568.jpg	/pic2/1794692542577_6ed8bb.jpg	chatmaster	500000008	seohostseohost	safari2023	$2a$10$jwtu8FEXETiLyvZWTWST3eurZGd1U3gDYJdd0nwtZvNnW2t04DY/C	384b54412f87709c075e4c2d18e82117d2ac45a7079f2ad8				f	f	1	1794777006594	1771634424510			6	/gifts_git/1776445025983.jpg	#a01c1c	2026-11-15		4	6	{"__daily":{"day":"2026-11-11","amounts":{"online_duration":5,"daily_login":5}},"daily_login":1794769106352,"online_duration":1794777906707,"room_message":1794691257432,"daily":{"day":"2026-11-15","amounts":{"wall_post":3,"daily_login":5,"private_message":1,"online_duration":1}},"wall_post":1794701013411,"private_message":1794769873064,"game_win":1794698091782}	f	f	f	f
-5	#FFFFFF	#000000	#1F1F1F	73	/sico/1771715317451.gif	::1	Windows.10.ot6.esb.agd.Chrome.yl3.4yc.wvn	UxEGGznAVf2-qt6gAAAF	z7fwmux1g29vwcpjx77z35ffi10itdx	pj1l22e51ih51bilghkyp0	 ، لست نصاً يمكن ازالتة انا الفكرة لست نصاً يمكن ازالتة انا الفكرة 	/pic/1773376784089.jpg	/pic2/1777688276361.jpg	admin	5500556	medo	medo	sha1$d636977e$1$99fb77bc3be261cda1ab1540fba361d6960c5a9c	881ecdfd5dbf04f26b0782b449b9c18b	rVMJH2BeW5E?si=BmqRmKJvqJblx2pv		/cover/1771636098677.gif	f	f	1	1777830607337	1772233912666	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	58		#FFFFFF	2026-05-03		0	6	{"__daily":{"day":"2026-05-03","amounts":{"daily_login":5,"online_duration":1}},"daily_login":1777829562045,"online_duration":1777833387520}	f	f	f	f
-22	#FFFFFF	#000000	#000000	16		127.0.0.1	6e139e2f0a554fd492ba2f8de28d5235	y2CmyKzOkDkCoH5dAAAu	27ebb051fb067af3753e	af9114346116b469bcd1deb3	لست نصا يمكن ازالتة انا الفكرة لست نصا يمكن ازالتة انا الفكرة	/pic/1794603563676_1aca1b.jpg	/pic2/1794605736747_5f1e58.jpg		100001	علي	علي	$2a$10$1JQEV0.j9Uz2LYloeVlga.zpmspFtgVUxwmvZDuwKbzHntWQBixBa	bd8135c88af7b3bb99d8d5e29f4a1046				f	f	0	1794616774345	1794603250089		\N	96792		#FFFFFF	2026-11-14		0	0	{"daily_login":1794616774563,"daily":{"day":"2026-11-14","amounts":{"daily_login":5,"online_duration":5}},"online_duration":1794675766531}	f	f	f	f
-4	#FFFFFF	#000000	#000000	0		192.168.1.1			c0oak2snfpgde03op0ad3x8y0ow66ka	oux7vcv2atpevurzua56w3	(عضو جديد)	pic.png	pich.png	chatmaster	0	chatmaster	chatmaster	sha1$e705b2a9$1$e8682eb5bfa27e58455fad886b4c740df0583ad3	87fc38b1d4869c243e85ea30ec47dd15				t	f	1	\N	1771634424510			0		#FFFFFF			0	0	\N	f	f	f	f
-25	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	37b74ad8375e9911dc2597a4ce85e22	eae1cdd4a8709934a70359	(عضو جديد)	pic.png	pich.png		0	sectest21c63b	sectest21c63b	$2a$10$JMN7.eQqnhntus/c/iSG3etASeItLbUgwbmeK10v.AhesiaAKskZq	81bdb94748dbaa6a1caf6f47232764c0				f	f	0	1794682170748	1794682170748		\N	0		#FFFFFF			0	0	\N	f	f	f	f
-8	#FFFFFF	#000000	#000000	137	dro3/1771636115918.jpg	127.0.0.1	24f7999a7dd1496d8e4b8a70e36cdbb3	QUnMisuXIOqgJXPGAAAF	867bc01476cd530af6d27b5bad66933	1db82554e5a9437d67da6e	لست نصا يمكن ازالتة انا الفكرة	/pic/1794440403648_6c221e.jpg	/pic2/1794440423293_3db5ec.jpg	Hide	100001	مازن	مازن	$2a$10$fo2QgwFrNUbgMPBwQ5GvS.GiQzqZSIK90O9k7V/xDlpUCHTIPZeQe	7322c94802836543095b28f9ee98cf0c	https://www.youtube.com/watch?v=enFeM1NXonA	1771636084601.gif	1771636098677.gif	f	f	0	1794769759465	1794422626741	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	1982	/gifts_git/1776445025983.jpg	#FFFFFF	2026-11-15		6	11	{"daily_login":1794769759869,"daily":{"day":"2026-11-15","amounts":{"daily_login":5,"online_duration":1}},"online_duration":1794770659879,"room_message":1794679455541,"wall_post":1794696616939,"game_win":1794524456436,"private_message":1794698849556}	t	t	f	f
-9	#FFFFFF	#000000	#000000	0		127.0.0.1	Win32	IfM7Vye89nuA6P0mAAAK	3c4e7f876e8e71fb094889a5d84d7f6	8d79228f9d305c993f5cf2	(عضو جديد)	pic.png	pich.png		1	نيمار	نيمار	$2a$10$8JuzPt5nNbpzRXbZi9JZHuHOku2zSYQtaQE0jzh.iQCAbtvkaGdvC	5baa75efdc5fa5bb8835eb2a2408c260				f	f	0	1794425337963	1794425337963		\N	0		#FFFFFF			0	0	\N	f	f	f	f
-21	#FFFFFF	#000000	#000000	68	1771636115918.jpg	127.0.0.1	298f979c63944e029ad50c05f36651bc	oKLq1F6QdOiTIdUPAAAp	939f3cfddc378594d1e1	612f23b9956c63ef868ebc61	(عضو جديد)	pic.png	pich.png	ترقية ذهبية	10001	زهره	زهره	$2a$10$L0Bp0pJB2AF41ouWyqV3VuF0L.T3o/AoTQ6CbN8d4aRug7T3PmDpm	a7c3d7c1e15e90a0d5f629a479652532				f	f	0	1794615288953	1794522409475		\N	0		#FFFFFF	2026-11-14		0	0	{"daily_login":1794615246730,"daily":{"day":"2026-11-14","amounts":{"daily_login":5,"private_message":1}},"room_message":1794613711142,"game_win":1794524562140,"online_duration":1794526323290,"private_message":1794615318377}	f	f	f	f
-3	#FFFFFF	#000000	#000000	80	/gifts_git/1776445025983.jpg	::1	Windows.10.t7a.gvg.por.Chrome.e4r.pf2.l4x	FTG5_5xnwYFGl-LyAAB7	kli4vc4f25x10d0a3qs4y32sbz8vv5b	5i8j4dzvrmg6w7l3nw4rvy	 لست نصاً يمكن ازالتة انا الفكرة لست نصاً يمكن ازالتة انا الفكرة 	/pic/1771634698757.jpg	/pic2/1771634702184.jpg	chatmaster	3232655673	admin	chatmaster11	sha1$1a0cc4ec$1$1e81835d762585d6f166c655d2f775b6e518d6fe	40a6d8b47a50d59e6cf15881619bf7f9	z6PxTtWGLSg?si=QV3US8UyZz8RDDT_			t	f	1	1777587049404	1771634424510	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	7	/dro3/1771636115918.jpg	#FFFFFF	2026-04-30		0	7	\N	f	f	f	f
-24	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	24a0ebc143a95844c03148d973231d1	b429d50f74050932fa56f4	(عضو جديد)	pic.png	pich.png		0	sectestb048fb	sectestb048fb	$2a$10$zfRPjzweE14fRBZoX6w6Fe2H.7tqDu9e3HYm0tAFrsKGonuNJFyhu	14539db0dd04d3accce88aef3434807a				f	f	0	1794682137909	1794682137909		\N	0		#FFFFFF			0	0	\N	f	f	f	f
-23	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	63bcbb95320be58b7f66a8dbd3295d4	48dfb865a8e28f11d4e129	(عضو جديد)	pic.png	pich.png		0	sectest0d17e5	sectest0d17e5	$2a$10$woqtJqejAnfXZeENmnngs.9AHIrQttL2omkY.W42ltU7/crz2yfw2	fc6a665f56db02b0fc5452e6bd2fe19e				f	f	0	1794682126415	1794682126415		\N	0		#FFFFFF			0	0	\N	f	f	f	f
+27	#FFFFFF	#000000	#000000	10		127.0.0.1	e6f918f32b93487682f287ed4bc985da	zWDmpzCd2FiBSTXzAAAI	aaad73ba5221e2a958e0	629a9a3ecc6278bf7681687d	(عضو جديد)	pic.png	pich.png		1	سامي	سامر	$2a$10$ctY/vDPgiNSq4YK2L5O4pe/YW754wLpQoPHUsVZqcaY5TN.eUfOFy	7001c86fc41b864995c8b353becd6380				f	f	0	1795119233156	1795117128345		\N	0		#FFFFFF	2026-11-19		0	0	{"daily_login":1795117128697,"daily":{"day":"2026-11-19","amounts":{"daily_login":5,"online_duration":5}},"online_duration":1795123733436}	f	t	t	t
+9	#FFFFFF	#000000	#000000	0		127.0.0.1	Win32	IfM7Vye89nuA6P0mAAAK	3c4e7f876e8e71fb094889a5d84d7f6	8d79228f9d305c993f5cf2	(عضو جديد)	pic.png	pich.png		1	نيمار	نيمار	$2a$10$8JuzPt5nNbpzRXbZi9JZHuHOku2zSYQtaQE0jzh.iQCAbtvkaGdvC	66d0bb17d64f10dcd3395e45cfd7d27d				f	f	0	1794425337963	1794425337963		\N	0		#FFFFFF			0	0	\N	f	f	f	f
+5	#FFFFFF	#000000	#1F1F1F	73	/sico/1771715317451.gif	::1	Windows.10.ot6.esb.agd.Chrome.yl3.4yc.wvn	UxEGGznAVf2-qt6gAAAF	z7fwmux1g29vwcpjx77z35ffi10itdx	pj1l22e51ih51bilghkyp0	 ، لست نصاً يمكن ازالتة انا الفكرة لست نصاً يمكن ازالتة انا الفكرة 	/pic/1773376784089.jpg	/pic2/1777688276361.jpg	admin	5500556	medo	medo	sha1$d636977e$1$99fb77bc3be261cda1ab1540fba361d6960c5a9c	f2ca02ac61520596f6dce67561709f36	rVMJH2BeW5E?si=BmqRmKJvqJblx2pv		/cover/1771636098677.gif	f	f	1	1777830607337	1772233912666	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	58		#FFFFFF	2026-05-03		0	6	{"__daily":{"day":"2026-05-03","amounts":{"daily_login":5,"online_duration":1}},"daily_login":1777829562045,"online_duration":1777833387520}	f	f	f	f
+22	#FFFFFF	#000000	#000000	16		127.0.0.1	6e139e2f0a554fd492ba2f8de28d5235	y2CmyKzOkDkCoH5dAAAu	27ebb051fb067af3753e	af9114346116b469bcd1deb3	لست نصا يمكن ازالتة انا الفكرة لست نصا يمكن ازالتة انا الفكرة	/pic/1794603563676_1aca1b.jpg	/pic2/1794605736747_5f1e58.jpg		100001	علي	علي	$2a$10$1JQEV0.j9Uz2LYloeVlga.zpmspFtgVUxwmvZDuwKbzHntWQBixBa	c0acf4f8d2d9b5679b884dea8818b15a				f	f	0	1794616774345	1794603250089		\N	96792		#FFFFFF	2026-11-14		0	0	{"daily_login":1794616774563,"daily":{"day":"2026-11-14","amounts":{"daily_login":5,"online_duration":5}},"online_duration":1794675766531}	f	f	f	f
+20	#FFFFFF	#000000	#000000	6		127.0.0.1	735bf07caf904c96a641dcde10db9cd2	Yc5uaV6bUne282cUAAAz	2c50fcbec5105cb3059f	1fed12b52786838144d1533f	(عضو جديد)	pic.png	pich.png		0	أمير القصص	storytester	$2a$10$9uAuP71OxtbFb8sPitSR4OXp0a1uxd6.2Mb0ipUaRvrtb2McMA6/2	12cfa893cf30c617e1d9ef21d2b29f0e				f	f	0	1794526520298	1794520286492		\N	0		#FFFFFF	2026-11-12		0	0	{"daily_login":1794520286834,"daily":{"day":"2026-11-12","amounts":{"daily_login":5,"online_duration":1}},"online_duration":1794525673080}	f	f	f	f
+6	#FFFFFF	#000000	#000000	0		::1	Android.8.0.0.4u0.iyp.ptr.Chrome.wl2.5j6.51p	1lA01NaGU8hz6CbLAABN	eiqpodczud9lwx7ic0aj1w5z1rk9gex	ox462ainhew5o88e83elq5	(عضو جديد)	/pic/1776894770113.jpg	pich.png		123123123	medo2	medo2	sha1$92a262dc$1$006cf2d9b1b3970759ac3a1598973778a324d2c8	bbec47b63ecb6f657838d99c0573e462				f	f	0	1776895550240	1776894731915			0		#FFFFFF			0	0	\N	f	f	f	f
+7	#FFFFFF	#000000	#000000	15		::1	Android.8.0.0.ehs.sxr.uhu.Chrome.izu.1nj.92e	kGO0mYRv8XU-JPiOAABL	q3lp0q4trnkk6zpunhqb07jobggjftk	4yw6hre4qx9xj6hnwdrsz8	(عضو جديد)	pic.png	pich.png		0	صالح	صالح	sha1$cefb5908$1$255571dbf56be8520bea16cb3604952eda5412ec	82410037c8c2811b66fb1d35e2ba6032				f	f	0	1777709439635	1777688952886			0		#FFFFFF	2026-05-02		0	0	{"__daily":{"day":"2026-05-02","amounts":{"daily_login":5,"online_duration":10}},"daily_login":1777688953904,"online_duration":1777709439630}	f	f	f	f
+24	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	24a0ebc143a95844c03148d973231d1	b429d50f74050932fa56f4	(عضو جديد)	pic.png	pich.png		0	sectestb048fb	sectestb048fb	$2a$10$zfRPjzweE14fRBZoX6w6Fe2H.7tqDu9e3HYm0tAFrsKGonuNJFyhu	4b7b19d278afa776beb1a6428109c1c6				f	f	0	1794682137909	1794682137909		\N	0		#FFFFFF			0	0	\N	f	f	f	f
+25	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	37b74ad8375e9911dc2597a4ce85e22	eae1cdd4a8709934a70359	(عضو جديد)	pic.png	pich.png		0	sectest21c63b	sectest21c63b	$2a$10$JMN7.eQqnhntus/c/iSG3etASeItLbUgwbmeK10v.AhesiaAKskZq	fe3afce8251d2f4c0653d2700a7b9950				f	f	0	1794682170748	1794682170748		\N	0		#FFFFFF			0	0	\N	f	f	f	f
+21	#FFFFFF	#000000	#000000	68	1771636115918.jpg	127.0.0.1	298f979c63944e029ad50c05f36651bc	oKLq1F6QdOiTIdUPAAAp	939f3cfddc378594d1e1	612f23b9956c63ef868ebc61	(عضو جديد)	pic.png	pich.png	ترقية ذهبية	10001	زهره	زهره	$2a$10$L0Bp0pJB2AF41ouWyqV3VuF0L.T3o/AoTQ6CbN8d4aRug7T3PmDpm	2e99de4f579593efacdf5f62af1e83d6				f	f	0	1794615288953	1794522409475		\N	0		#FFFFFF	2026-11-14		0	0	{"daily_login":1794615246730,"daily":{"day":"2026-11-14","amounts":{"daily_login":5,"private_message":1}},"room_message":1794613711142,"game_win":1794524562140,"online_duration":1794526323290,"private_message":1794615318377}	f	f	f	f
+26	#FFFFFF	#000000	#000000	19		127.0.0.1	922634d6acc94f5eba48405615029f7a	a-oQnqOjsnDRw4DRAAAC	336e94438d74b3e8070c	de880c63979c3e9ff6667baa	(عضو جديد)	/pic/1795042050089_c0c0c7.jpg	/pic2/1795042097443_f703b8.jpg		10001	كمال	كيمو	$2a$10$bnirAItfQmRyLXT5QVi/tevS8pZyrrQcnfZ86.kAt8GpxrCYK2sj2	89a09e0933644b7821623e0df6f91910				f	f	0	1795136475763	1795036975531	sb_1773956561289	{"id":"sb_1773956561289","name":"بببب","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1773956558185.gif","bg_type":"animated"}	15	/gifts_git/1776445025983.jpg	#FFFFFF	2026-11-20		0	16	{"daily_login":1795132870198,"daily":{"day":"2026-11-20","amounts":{"daily_login":5}},"online_duration":1795042000780,"room_message":1795117163909,"private_message":1795119360466}	f	f	f	f
+1	#FFFFFF	#000000	#000000	0		192.168.1.1			5ogwo9ii4vqdubv10ovnx6g2fkta8j4	qp46tzm6fb0r4h1g0468za	(عضو جديد)	pic.png	pich.png	ispower	0	mohammed	mohammed	sha1$b93f1d5c$1$0bbd5078ea2a506e2aad595bfe7b4fe3816f00c7	340dd9dc0738ffa44257f73ff46ea3ba				f	f	1	\N	1771634424509			0		#FFFFFF			0	0	\N	f	f	f	f
+2	#ffffff	#0b0a0a	#f0ebeb	175		127.0.0.1	e6f918f32b93487682f287ed4bc985da	YIaMI7WpxYXmoIk2AAAG	ormtckbsh8x0plk7e45tggph562lufc	tamxbgxn7ds9shhxgzz665	لست نصا يمكن ازالتة انا الفكرة لست نصا يمكن ازالتة انا الفكرة	/pic/1794512127060_378568.jpg	/pic2/1794692542577_6ed8bb.jpg	Hide	500000010	seohostseohost	safari2023	$2a$10$jwtu8FEXETiLyvZWTWST3eurZGd1U3gDYJdd0nwtZvNnW2t04DY/C	f05afbbe9347fa34026bf1028b7b0368				t	f	1	1795132077260	1771634424510			0	/gifts_git/1776445025983.jpg	#a01c1c	2026-11-19		4	7	{"__daily":{"day":"2026-11-11","amounts":{"online_duration":5,"daily_login":5}},"daily_login":1795115961701,"online_duration":1795119075786,"room_message":1794691257432,"daily":{"day":"2026-11-19","amounts":{"daily_login":5,"online_duration":1,"private_message":1}},"wall_post":1794701013411,"private_message":1795119091490,"game_win":1794698091782}	f	f	f	f
+23	#FFFFFF	#000000	#000000	0		127.0.0.1	sec-test	\N	63bcbb95320be58b7f66a8dbd3295d4	48dfb865a8e28f11d4e129	(عضو جديد)	pic.png	pich.png		0	sectest0d17e5	sectest0d17e5	$2a$10$woqtJqejAnfXZeENmnngs.9AHIrQttL2omkY.W42ltU7/crz2yfw2	21ae7076f143283bdc408a79dbc0916f				f	f	0	1794682126415	1794682126415		\N	0		#FFFFFF			0	0	\N	f	f	f	f
+4	#FFFFFF	#000000	#000000	0		192.168.1.1			c0oak2snfpgde03op0ad3x8y0ow66ka	oux7vcv2atpevurzua56w3	(عضو جديد)	pic.png	pich.png	chatmaster	0	chatmaster	chatmaster	sha1$e705b2a9$1$e8682eb5bfa27e58455fad886b4c740df0583ad3	25cf761201b474793dac48134973d21a				t	f	1	\N	1771634424510			0		#FFFFFF			0	0	\N	f	f	f	f
+3	#FFFFFF	#000000	#000000	80	/gifts_git/1776445025983.jpg	::1	Windows.10.t7a.gvg.por.Chrome.e4r.pf2.l4x	FTG5_5xnwYFGl-LyAAB7	kli4vc4f25x10d0a3qs4y32sbz8vv5b	5i8j4dzvrmg6w7l3nw4rvy	 لست نصاً يمكن ازالتة انا الفكرة لست نصاً يمكن ازالتة انا الفكرة 	/pic/1771634698757.jpg	/pic2/1771634702184.jpg	chatmaster	3232655673	admin	chatmaster11	sha1$1a0cc4ec$1$1e81835d762585d6f166c655d2f775b6e518d6fe	a54d7d40f4daafb3fd7d7c8e7ee84f40	z6PxTtWGLSg?si=QV3US8UyZz8RDDT_			t	f	1	1777587049404	1771634424510	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	7	/dro3/1771636115918.jpg	#FFFFFF	2026-04-30		0	7	\N	f	f	f	f
+8	#FFFFFF	#000000	#000000	172	sico/1771715317451.gif	127.0.0.1	e6f918f32b93487682f287ed4bc985da	M_ONwfQerHaUcsY0AAAM	867bc01476cd530af6d27b5bad66933	1db82554e5a9437d67da6e	لست نصا يمكن ازالتة انا الفكرة	/pic/1794440403648_6c221e.jpg	/pic2/1794440423293_3db5ec.jpg	ترقية ذهبية	100004	مازن	مازن	$2a$10$fo2QgwFrNUbgMPBwQ5GvS.GiQzqZSIK90O9k7V/xDlpUCHTIPZeQe	9f5543f08aa9e7eaeaa441386bc48b35	https://www.youtube.com/watch?v=enFeM1NXonA	1771636084601.gif	1771636098677.gif	t	f	1	1795135569243	1794422626741	sb_1772252966823	{"id":"sb_1772252966823","name":"مالك الموقع","bg":"linear-gradient(60deg, #ff0000, #fff200, #ff0000, #ffffff)","icon":"/room_badges/1772252964797.gif","bg_type":"animated"}	1973	/gifts_git/1776445025983.jpg	#FFFFFF	2026-11-20	ترقية ذهبية	7	17	{"daily_login":1795132860355,"daily":{"day":"2026-11-20","amounts":{"daily_login":5,"online_duration":1}},"online_duration":1795134724718,"room_message":1794679455541,"wall_post":1795126028122,"game_win":1794524456436,"private_message":1795036414494}	f	t	f	t
 \.
 
 
@@ -4434,14 +5462,14 @@ SELECT pg_catalog.setval('public.agents_id_seq', 2, true);
 -- Name: band_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.band_id_seq', 2, true);
+SELECT pg_catalog.setval('public.band_id_seq', 3, true);
 
 
 --
 -- Name: bars_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.bars_id_seq', 131, true);
+SELECT pg_catalog.setval('public.bars_id_seq', 153, true);
 
 
 --
@@ -4462,7 +5490,7 @@ SELECT pg_catalog.setval('public.bsb_id_seq', 1, true);
 -- Name: coin_ledger_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.coin_ledger_id_seq', 65, true);
+SELECT pg_catalog.setval('public.coin_ledger_id_seq', 95, true);
 
 
 --
@@ -4480,17 +5508,66 @@ SELECT pg_catalog.setval('public.cuts_id_seq', 2, true);
 
 
 --
+-- Name: feed_bookmarks_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_bookmarks_id_seq', 2, true);
+
+
+--
+-- Name: feed_comment_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_comment_likes_id_seq', 5, true);
+
+
+--
+-- Name: feed_comments_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_comments_id_seq', 6, true);
+
+
+--
+-- Name: feed_post_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_post_likes_id_seq', 6, true);
+
+
+--
+-- Name: feed_post_media_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_post_media_id_seq', 6, true);
+
+
+--
+-- Name: feed_posts_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.feed_posts_id_seq', 5, true);
+
+
+--
 -- Name: followers_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.followers_id_seq', 24, true);
+SELECT pg_catalog.setval('public.followers_id_seq', 29, true);
+
+
+--
+-- Name: gift_fee_slabs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.gift_fee_slabs_id_seq', 135, true);
 
 
 --
 -- Name: gift_notifications_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.gift_notifications_id_seq', 31, true);
+SELECT pg_catalog.setval('public.gift_notifications_id_seq', 46, true);
 
 
 --
@@ -4498,6 +5575,13 @@ SELECT pg_catalog.setval('public.gift_notifications_id_seq', 31, true);
 --
 
 SELECT pg_catalog.setval('public.histletter_id_seq', 8, true);
+
+
+--
+-- Name: hosting_owner_wallet_ledger_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.hosting_owner_wallet_ledger_id_seq', 1, false);
 
 
 --
@@ -4525,35 +5609,35 @@ SELECT pg_catalog.setval('public.intromsg_id_seq', 2, true);
 -- Name: logs_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.logs_id_seq', 171, true);
+SELECT pg_catalog.setval('public.logs_id_seq', 269, true);
 
 
 --
 -- Name: names_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.names_id_seq', 158, true);
+SELECT pg_catalog.setval('public.names_id_seq', 254, true);
 
 
 --
 -- Name: note_comment_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.note_comment_likes_id_seq', 4, true);
+SELECT pg_catalog.setval('public.note_comment_likes_id_seq', 8, true);
 
 
 --
 -- Name: note_comments_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.note_comments_id_seq', 9, true);
+SELECT pg_catalog.setval('public.note_comments_id_seq', 23, true);
 
 
 --
 -- Name: note_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.note_likes_id_seq', 7, true);
+SELECT pg_catalog.setval('public.note_likes_id_seq', 14, true);
 
 
 --
@@ -4588,21 +5672,21 @@ SELECT pg_catalog.setval('public.powers_id_seq', 1, true);
 -- Name: profile_visits_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.profile_visits_id_seq', 228, true);
+SELECT pg_catalog.setval('public.profile_visits_id_seq', 260, true);
 
 
 --
 -- Name: room_welcome_visits_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.room_welcome_visits_id_seq', 83, true);
+SELECT pg_catalog.setval('public.room_welcome_visits_id_seq', 108, true);
 
 
 --
 -- Name: rooms_idroom_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.rooms_idroom_seq', 18, true);
+SELECT pg_catalog.setval('public.rooms_idroom_seq', 21, true);
 
 
 --
@@ -4610,6 +5694,13 @@ SELECT pg_catalog.setval('public.rooms_idroom_seq', 18, true);
 --
 
 SELECT pg_catalog.setval('public.settings_id_seq', 1, true);
+
+
+--
+-- Name: site_funding_log_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.site_funding_log_id_seq', 1, false);
 
 
 --
@@ -4637,42 +5728,42 @@ SELECT pg_catalog.setval('public.site_master_wallet_ledger_id_seq', 11, true);
 -- Name: stats_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.stats_id_seq', 411, true);
+SELECT pg_catalog.setval('public.stats_id_seq', 438, true);
 
 
 --
 -- Name: storie_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.storie_id_seq', 9, true);
+SELECT pg_catalog.setval('public.storie_id_seq', 10, true);
 
 
 --
 -- Name: storieview_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.storieview_id_seq', 77, true);
+SELECT pg_catalog.setval('public.storieview_id_seq', 100, true);
 
 
 --
 -- Name: story_comment_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.story_comment_likes_id_seq', 6, true);
+SELECT pg_catalog.setval('public.story_comment_likes_id_seq', 16, true);
 
 
 --
 -- Name: story_comments_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.story_comments_id_seq', 22, true);
+SELECT pg_catalog.setval('public.story_comments_id_seq', 36, true);
 
 
 --
 -- Name: story_likes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.story_likes_id_seq', 25, true);
+SELECT pg_catalog.setval('public.story_likes_id_seq', 36, true);
 
 
 --
@@ -4686,21 +5777,21 @@ SELECT pg_catalog.setval('public.sub_id_seq', 4, true);
 -- Name: top10wall_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.top10wall_id_seq', 161, true);
+SELECT pg_catalog.setval('public.top10wall_id_seq', 183, true);
 
 
 --
 -- Name: topup_order_events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.topup_order_events_id_seq', 10, true);
+SELECT pg_catalog.setval('public.topup_order_events_id_seq', 12, true);
 
 
 --
 -- Name: topup_orders_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.topup_orders_id_seq', 5, true);
+SELECT pg_catalog.setval('public.topup_orders_id_seq', 6, true);
 
 
 --
@@ -4714,14 +5805,14 @@ SELECT pg_catalog.setval('public.topup_settlement_ledger_id_seq', 3, true);
 -- Name: user_notes_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.user_notes_id_seq', 5, true);
+SELECT pg_catalog.setval('public.user_notes_id_seq', 8, true);
 
 
 --
 -- Name: users_idreg_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.users_idreg_seq', 25, true);
+SELECT pg_catalog.setval('public.users_idreg_seq', 27, true);
 
 
 --
@@ -4813,11 +5904,67 @@ ALTER TABLE ONLY public.cuts
 
 
 --
+-- Name: feed_bookmarks feed_bookmarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_bookmarks
+    ADD CONSTRAINT feed_bookmarks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: feed_comment_likes feed_comment_likes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_comment_likes
+    ADD CONSTRAINT feed_comment_likes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: feed_comments feed_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_comments
+    ADD CONSTRAINT feed_comments_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: feed_post_likes feed_post_likes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_post_likes
+    ADD CONSTRAINT feed_post_likes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: feed_post_media feed_post_media_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_post_media
+    ADD CONSTRAINT feed_post_media_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: feed_posts feed_posts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feed_posts
+    ADD CONSTRAINT feed_posts_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: followers followers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.followers
     ADD CONSTRAINT followers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: gift_fee_slabs gift_fee_slabs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_fee_slabs
+    ADD CONSTRAINT gift_fee_slabs_pkey PRIMARY KEY (id);
 
 
 --
@@ -4829,11 +5976,35 @@ ALTER TABLE ONLY public.gift_notifications
 
 
 --
+-- Name: gift_settings gift_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.gift_settings
+    ADD CONSTRAINT gift_settings_pkey PRIMARY KEY (key);
+
+
+--
 -- Name: histletter histletter_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.histletter
     ADD CONSTRAINT histletter_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: hosting_owner_wallet_ledger hosting_owner_wallet_ledger_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hosting_owner_wallet_ledger
+    ADD CONSTRAINT hosting_owner_wallet_ledger_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: hosting_owner_wallet hosting_owner_wallet_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hosting_owner_wallet
+    ADD CONSTRAINT hosting_owner_wallet_pkey PRIMARY KEY (id);
 
 
 --
@@ -4925,6 +6096,14 @@ ALTER TABLE ONLY public.owner
 
 
 --
+-- Name: idempotency_records pk_idempotency_records; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.idempotency_records
+    ADD CONSTRAINT pk_idempotency_records PRIMARY KEY (user_uid, idempotency_key);
+
+
+--
 -- Name: powers powers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4962,6 +6141,14 @@ ALTER TABLE ONLY public.rooms
 
 ALTER TABLE ONLY public.settings
     ADD CONSTRAINT settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: site_funding_log site_funding_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.site_funding_log
+    ADD CONSTRAINT site_funding_log_pkey PRIMARY KEY (id);
 
 
 --
@@ -5268,6 +6455,69 @@ CREATE INDEX idx_cuts_text1 ON public.cuts USING btree (text1);
 
 
 --
+-- Name: idx_feed_bookmarks_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_bookmarks_user ON public.feed_bookmarks USING btree (user_uid, created_at DESC);
+
+
+--
+-- Name: idx_feed_comment_likes_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_comment_likes_user ON public.feed_comment_likes USING btree (user_uid);
+
+
+--
+-- Name: idx_feed_comments_author; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_comments_author ON public.feed_comments USING btree (author_uid);
+
+
+--
+-- Name: idx_feed_comments_parent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_comments_parent ON public.feed_comments USING btree (parent_comment_id, created_at);
+
+
+--
+-- Name: idx_feed_comments_post_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_comments_post_created ON public.feed_comments USING btree (post_id, created_at);
+
+
+--
+-- Name: idx_feed_media_post_sort; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_media_post_sort ON public.feed_post_media USING btree (post_id, sort_order);
+
+
+--
+-- Name: idx_feed_post_likes_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_post_likes_user ON public.feed_post_likes USING btree (user_uid);
+
+
+--
+-- Name: idx_feed_posts_author; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_posts_author ON public.feed_posts USING btree (author_uid, created_at DESC);
+
+
+--
+-- Name: idx_feed_posts_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feed_posts_created_at ON public.feed_posts USING btree (created_at DESC);
+
+
+--
 -- Name: idx_followers_follower; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5317,6 +6567,13 @@ CREATE INDEX idx_histletter_topic ON public.histletter USING btree (topic);
 
 
 --
+-- Name: idx_hosting_owner_wallet_ledger_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_hosting_owner_wallet_ledger_created_at ON public.hosting_owner_wallet_ledger USING btree (created_at);
+
+
+--
 -- Name: idx_hosts_hostname; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5328,6 +6585,13 @@ CREATE INDEX idx_hosts_hostname ON public.hosts USING btree (hostname);
 --
 
 CREATE INDEX idx_hosts_setting ON public.hosts USING btree (setting);
+
+
+--
+-- Name: idx_idem_status_lease; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_idem_status_lease ON public.idempotency_records USING btree (status, lease_expires_at);
 
 
 --
@@ -5517,6 +6781,13 @@ CREATE INDEX idx_rooms_owner ON public.rooms USING btree (owner);
 --
 
 CREATE INDEX idx_rooms_topic ON public.rooms USING btree (topic);
+
+
+--
+-- Name: idx_site_funding_created_at; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_site_funding_created_at ON public.site_funding_log USING btree (created_at);
 
 
 --
@@ -5835,6 +7106,48 @@ CREATE UNIQUE INDEX uniq_agents_username ON public.agents USING btree (username)
 
 
 --
+-- Name: uniq_coin_ledger_txid_event_user; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_coin_ledger_txid_event_user ON public.coin_ledger USING btree (txid, event_type, user_idreg) WHERE ((txid)::text <> ''::text);
+
+
+--
+-- Name: uniq_feed_bookmarks; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_feed_bookmarks ON public.feed_bookmarks USING btree (post_id, user_uid);
+
+
+--
+-- Name: uniq_feed_comment_likes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_feed_comment_likes ON public.feed_comment_likes USING btree (comment_id, user_uid);
+
+
+--
+-- Name: uniq_feed_comments_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_feed_comments_id ON public.feed_comments USING btree (comment_id);
+
+
+--
+-- Name: uniq_feed_post_likes; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_feed_post_likes ON public.feed_post_likes USING btree (post_id, user_uid);
+
+
+--
+-- Name: uniq_feed_posts_post_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_feed_posts_post_id ON public.feed_posts USING btree (post_id);
+
+
+--
 -- Name: uniq_followers_pair; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -5842,10 +7155,38 @@ CREATE UNIQUE INDEX uniq_followers_pair ON public.followers USING btree (followe
 
 
 --
+-- Name: uniq_gift_fee_slabs_min; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_gift_fee_slabs_min ON public.gift_fee_slabs USING btree (slab_min_coin);
+
+
+--
+-- Name: uniq_hosting_owner_wallet_ledger_txid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_hosting_owner_wallet_ledger_txid ON public.hosting_owner_wallet_ledger USING btree (txid);
+
+
+--
+-- Name: uniq_idem_txid; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_idem_txid ON public.idempotency_records USING btree (txid) WHERE ((txid)::text <> ''::text);
+
+
+--
 -- Name: uniq_room_welcome_visit; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX uniq_room_welcome_visit ON public.room_welcome_visits USING btree (room_id, identity_key);
+
+
+--
+-- Name: uniq_site_funding_idempotency; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uniq_site_funding_idempotency ON public.site_funding_log USING btree (idempotency_key);
 
 
 --
@@ -5873,5 +7214,5 @@ CREATE UNIQUE INDEX uniq_users_username ON public.users USING btree (username);
 -- PostgreSQL database dump complete
 --
 
-\unrestrict S3d3g3lvjLmERzpkpsj34uefQfqNkf5TCkx6HUCSSShp2eH4d8BbEs14h44e5IH
+\unrestrict bFgvp9an4WFXLKH2QSebKM2kG2B4iwxmwXbw4eixSeBGaKUS5mW2zD1K2Tawl5R
 

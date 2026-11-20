@@ -13,7 +13,7 @@ import {
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
+
 
 export const coin_ledger = pgTable(
   "coin_ledger",
@@ -131,7 +131,7 @@ export const gift_settings = pgTable(
     key: varchar("key", { length: 64 }).primaryKey(),
     value: text("value").notNull(),
     updated_at: bigint("updated_at", { mode: "number" }).notNull(),
-    updated_by: integer("updated_by").references(() => users.idreg, { onDelete: "set null" }),
+    updated_by: integer("updated_by"),
   },
 );
 

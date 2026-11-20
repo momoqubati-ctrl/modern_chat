@@ -17,8 +17,10 @@ export function createDbPool(connectionString?: string) {
     process.env.DATABASE_SSL === "1" ||
     (process.env.DATABASE_SSL !== "false" &&
       (url.includes("supabase.com") ||
-        url.includes("sslmode=require") ||
-        url.includes("pooler.supabase.com")));
+        url.includes("pooler.supabase.com") ||
+        url.includes("render.com") ||
+        url.includes("dpg-") ||
+        url.includes("sslmode=require")));
 
   const ssl = isSslRequired ? { rejectUnauthorized: false } : undefined;
 
