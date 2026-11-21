@@ -686,125 +686,133 @@ export function createMessagingHandlers(ctx: GatewayContext) {
     },
 
     async handleSaveStoryEvent(socket: Socket, rawData: unknown): Promise<void> {
-      const session = ctx.presenceDirectory.getLocalSession(socket.id);
-      if (!session || session.islogin !== "عضو" || !session.uid || !rawData || typeof rawData !== "object") {
-        if (session && session.islogin !== "عضو") {
-          emitNotice(socket, "هذه الميزة متاحة للأعضاء المسجلين فقط");
-        }
-        return;
-      }
-
-      if (session.ismuted || session.muted) {
-        emitNotice(socket, "أنت مكتوم ولا يمكنك نشر قصص حالياً");
-        return;
-      }
-
-      const rate = await ctx.securityGuard.consumeRateSlot(`story:pub:${session.uid}`, 12, 300_000);
-      if (!rate.ok) {
-        emitNotice(socket, "يرجى الانتظار قليلاً قبل نشر قصة جديدة");
-        return;
-      }
-
-      const d = rawData as Record<string, unknown>;
-      const rawType = String(d.type || d.mediaType || "image").trim().toLowerCase();
-      const storyType: "text" | "image" | "video" =
-        rawType === "text" ? "text" : rawType === "video" ? "video" : "image";
-
-      const rawMediaUrl = String(d.link || d.url || d.src || d.mediaUrl || "").trim();
-      const mediaUrl =
-        storyType === "text"
-          ? ""
-          : sanitizeHtmlText(rawMediaUrl).slice(0, 255);
-
-      if (storyType !== "text") {
-        if (
-          !mediaUrl ||
-          (!mediaUrl.startsWith("/") && !mediaUrl.startsWith("https://") && !mediaUrl.startsWith("http://"))
-        ) {
-          emitNotice(socket, "يرجى اختيار صورة أو فيديو صالح للقصة");
+      try {
+        const session = ctx.presenceDirectory.getLocalSession(socket.id);
+        if (!session || session.islogin !== "عضو" || !session.uid || !rawData || typeof rawData !== "object") {
+          if (session && session.islogin !== "عضو") {
+            emitNotice(socket, "هذه الميزة متاحة للأعضاء المسجلين فقط");
+          } else if (!session) {
+            emitNotice(socket, "يرجى تسجيل الدخول أولاً لنشر قصة");
+          }
           return;
         }
-      }
 
-      const caption = sanitizeHtmlText(String(d.caption || d.text || "").trim()).slice(0, 500);
-      if (storyType === "text" && !caption) {
-        emitNotice(socket, "يرجى كتابة نص للقصة");
-        return;
-      }
-      if (storyType === "text" && /https?:\/\/[^\s]+/i.test(caption)) {
-        emitNotice(socket, "لا يُسمح بإدراج روابط في النص");
-        return;
-      }
-      if (caption && ctx.catalogStore.scanProhibitedWords(caption)) {
-        emitNotice(socket, "يحتوي النص على كلمات غير مسموح بها");
-        return;
-      }
+        if (session.ismuted || session.muted) {
+          emitNotice(socket, "أنت مكتوم ولا يمكنك نشر قصص حالياً");
+          return;
+        }
 
-      const rawBg = String(d.bgColor || "").trim();
-      const bgColor =
-        storyType === "text" && /^linear-gradient\(135deg,\s*#[0-9a-fA-F]{3,8},\s*#[0-9a-fA-F]{3,8}\)$/.test(rawBg)
-          ? rawBg
-          : storyType === "text"
-            ? "linear-gradient(135deg,#667eea,#764ba2)"
-            : "";
+        const rate = await ctx.securityGuard.consumeRateSlot(`story:pub:${session.uid}`, 12, 300_000);
+        if (!rate.ok) {
+          emitNotice(socket, "يرجى الانتظار قليلاً قبل نشر قصة جديدة");
+          return;
+        }
 
-      const rawTextColor = String(d.textColor || "").trim();
-      const textColor =
-        storyType === "text" && /^#[0-9a-fA-F]{3,8}$/.test(rawTextColor)
-          ? rawTextColor
-          : storyType === "text"
-            ? "#ffffff"
-            : "";
+        const d = rawData as Record<string, unknown>;
+        const rawType = String(d.type || d.mediaType || "image").trim().toLowerCase();
+        const storyType: "text" | "image" | "video" =
+          rawType === "text" ? "text" : rawType === "video" ? "video" : "image";
 
-      const { db } = getDb();
-      const rows = await db.select().from(storie).where(eq(storie.sid, session.uid)).limit(1);
-      const nowMs = Date.now();
-      const nowStr = String(nowMs);
-      const newEntry: Record<string, unknown> = {
-        id: stringGen(10),
-        type: storyType,
-        src: mediaUrl,
-        ...(caption ? { caption } : {}),
-        ...(bgColor ? { bgColor } : {}),
-        ...(textColor ? { textColor } : {}),
-        length: Math.max(3, Math.min(30, Number(d.length || (storyType === "video" ? 15 : 6)) || 6)),
-        time: nowMs,
-      };
+        const rawMediaUrl = String(d.link || d.url || d.src || d.mediaUrl || "").trim();
+        const mediaUrl =
+          storyType === "text"
+            ? ""
+            : sanitizeHtmlText(rawMediaUrl).slice(0, 255);
 
-      const previewLink = mediaUrl || `text:${caption.slice(0, 60)}`;
+        if (storyType !== "text") {
+          if (
+            !mediaUrl ||
+            (!mediaUrl.startsWith("/") && !mediaUrl.startsWith("https://") && !mediaUrl.startsWith("http://"))
+          ) {
+            emitNotice(socket, "يرجى اختيار صورة أو فيديو صالح للقصة");
+            return;
+          }
+        }
 
-      if (rows[0]) {
-        const items = safeJsonParse<Array<Record<string, unknown>>>(rows[0].item, []);
-        items.push(newEntry);
-        await db
-          .update(storie)
-          .set({
+        const caption = sanitizeHtmlText(String(d.caption || d.text || "").trim()).slice(0, 500);
+        if (storyType === "text" && !caption) {
+          emitNotice(socket, "يرجى كتابة نص للقصة");
+          return;
+        }
+        if (storyType === "text" && /https?:\/\/[^\s]+/i.test(caption)) {
+          emitNotice(socket, "لا يُسمح بإدراج روابط في النص");
+          return;
+        }
+        if (caption && ctx.catalogStore.scanProhibitedWords(caption)) {
+          emitNotice(socket, "يحتوي النص على كلمات غير مسموح بها");
+          return;
+        }
+
+        const rawBg = String(d.bgColor || "").trim();
+        const bgColor =
+          storyType === "text" && /^linear-gradient\(135deg,\s*#[0-9a-fA-F]{3,8},\s*#[0-9a-fA-F]{3,8}\)$/.test(rawBg)
+            ? rawBg
+            : storyType === "text"
+              ? "linear-gradient(135deg,#667eea,#764ba2)"
+              : "";
+
+        const rawTextColor = String(d.textColor || "").trim();
+        const textColor =
+          storyType === "text" && /^#[0-9a-fA-F]{3,8}$/.test(rawTextColor)
+            ? rawTextColor
+            : storyType === "text"
+              ? "#ffffff"
+              : "";
+
+        const { db } = getDb();
+        const rows = await db.select().from(storie).where(eq(storie.sid, session.uid)).limit(1);
+        const nowMs = Date.now();
+        const nowStr = String(nowMs);
+        const newEntry: Record<string, unknown> = {
+          id: stringGen(10),
+          type: storyType,
+          src: mediaUrl,
+          ...(caption ? { caption } : {}),
+          ...(bgColor ? { bgColor } : {}),
+          ...(textColor ? { textColor } : {}),
+          length: Math.max(3, Math.min(30, Number(d.length || (storyType === "video" ? 15 : 6)) || 6)),
+          time: nowMs,
+        };
+
+        const previewLink = mediaUrl || `text:${caption.slice(0, 60)}`;
+
+        if (rows[0]) {
+          const items = safeJsonParse<Array<Record<string, unknown>>>(rows[0].item, []);
+          items.push(newEntry);
+          await db
+            .update(storie)
+            .set({
+              photo: session.pic || "pic.png",
+              name: sanitizeHtmlText(session.topic).slice(0, 250),
+              link: previewLink.slice(0, 250),
+              lastUpdated: nowStr,
+              item: JSON.stringify(items.slice(-15)),
+            })
+            .where(eq(storie.id, rows[0].id));
+        } else {
+          await db.insert(storie).values({
+            sid: session.uid,
             photo: session.pic || "pic.png",
             name: sanitizeHtmlText(session.topic).slice(0, 250),
             link: previewLink.slice(0, 250),
             lastUpdated: nowStr,
-            item: JSON.stringify(items.slice(-15)),
-          })
-          .where(eq(storie.id, rows[0].id));
-      } else {
-        await db.insert(storie).values({
-          sid: session.uid,
-          photo: session.pic || "pic.png",
-          name: sanitizeHtmlText(session.topic).slice(0, 250),
-          link: previewLink.slice(0, 250),
-          lastUpdated: nowStr,
-          item: JSON.stringify([newEntry]),
-          seen: false,
-          currentPreview: "[]",
-        });
-      }
+            item: JSON.stringify([newEntry]),
+            seen: false,
+            currentPreview: "[]",
+          });
+        }
 
-      const [senderStories, publicStories] = await Promise.all([
-        loadInitialStories(session.uid),
-        loadInitialStories(),
-      ]);
-      socket.emit("msg", { cmd: "stori", data: senderStories });
-      socket.broadcast.emit("msg", { cmd: "stories", data: publicStories });
+        const [senderStories, publicStories] = await Promise.all([
+          loadInitialStories(session.uid),
+          loadInitialStories(),
+        ]);
+        socket.emit("msg", { cmd: "stori", data: senderStories });
+        socket.broadcast.emit("msg", { cmd: "stories", data: publicStories });
+        emitNotice(socket, "تم نشر القصة بنجاح ✨");
+      } catch (err) {
+        console.error("[messagingHandlers] handleSaveStoryEvent error:", err);
+        emitNotice(socket, "حدث خطأ أثناء حفظ القصة، يرجى المحاولة لاحقاً");
+      }
     },
 
     async handleSendVoice(socket: Socket, rawData: unknown): Promise<void> {

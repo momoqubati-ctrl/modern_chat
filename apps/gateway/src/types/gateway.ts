@@ -69,6 +69,7 @@ export interface GatewaySession extends OnlineUserSnapshot {
   kicked?: boolean;
   loggedOut?: boolean;
   pageHidden?: boolean;
+  pageLifecycleExit?: boolean;
   meta_ts: number;
   lastRoomId?: string | null;
   s?: string | number | null;

@@ -112,12 +112,12 @@ export function getPowerDefinitionByName(
   powers: readonly PowerRole[],
   powerName: string | null | undefined,
 ): PowerRole | null {
-  const safeName = String(powerName || "");
+  const safeName = String(powerName || "").trim();
   if (!safeName || !Array.isArray(powers)) {
     return null;
   }
   for (let i = 0; i < powers.length; i += 1) {
-    if (String(powers[i]?.name || "") === safeName) {
+    if (String(powers[i]?.name || "").trim() === safeName) {
       return powers[i]!;
     }
   }
@@ -792,6 +792,16 @@ export function getPresenceUserPoints(
   return Number.isFinite(val) ? val : 0;
 }
 
+export function getPresenceGroupRank(
+  powers: readonly PowerRole[],
+  user: Partial<OnlineUserSnapshot> | null | undefined,
+): number {
+  if (!user) return 0;
+  const powerName = String(user.power || user.rank || "").trim();
+  if (!powerName) return 0;
+  return Math.max(0, getPowerRankValue(powers, powerName));
+}
+
 export function comparePresenceUsers(
   a: Partial<OnlineUserSnapshot> | null | undefined,
   b: Partial<OnlineUserSnapshot> | null | undefined,
@@ -802,29 +812,34 @@ export function comparePresenceUsers(
   if (!a) return 1;
   if (!b) return -1;
 
-  if (currentRoomId) {
-    const cleanRoomId = String(currentRoomId).trim();
-    const isLive = (u: Partial<OnlineUserSnapshot>) => !u.offline && Number(u.stat ?? 0) !== 3 && u.s == null;
-    const getGroup = (u: Partial<OnlineUserSnapshot>): number => {
-      if (!isLive(u)) return 0;
-      const uRoom = String(u.roomid || "").trim();
-      if (cleanRoomId && uRoom === cleanRoomId) return 30;
-      if (uRoom) return 20;
-      return 10;
-    };
-    const groupA = getGroup(a);
-    const groupB = getGroup(b);
-    if (groupA !== groupB) {
-      return groupB - groupA;
-    }
+  // Primary: Live/Room Group priority (matching chetos logic).
+  // Live in current room = 30, Live in other room = 20, Live in lobby = 10, Offline/Stealth = 0.
+  // This guarantees offline pinned members never mix with or rank above live members.
+  const cleanRoomId = currentRoomId ? String(currentRoomId).trim() : "";
+  const isLive = (u: Partial<OnlineUserSnapshot>) => !u.offline && Number(u.stat ?? 0) !== 3 && u.s == null;
+  const getGroup = (u: Partial<OnlineUserSnapshot>): number => {
+    if (!isLive(u)) return 0;
+    const uRoom = String(u.roomid || "").trim();
+    if (cleanRoomId && uRoom === cleanRoomId) return 30;
+    if (uRoom) return 20;
+    return 10;
+  };
+  const groupA = getGroup(a);
+  const groupB = getGroup(b);
+  if (groupA !== groupB) {
+    return groupB - groupA;
   }
 
-  const ar = getPowerRankValue(powers, a.power ?? a.rank);
-  const br = getPowerRankValue(powers, b.power ?? b.rank);
+  // Secondary: membership strength = the assigned power group rank, descending.
+  // Members without a power group get rank 0 and fall through to points.
+  const ar = getPresenceGroupRank(powers, a);
+  const br = getPresenceGroupRank(powers, b);
   if (ar !== br) {
     return br - ar;
   }
 
+  // Tertiary: evaluation points, descending. This is what orders members
+  // without a power group, and breaks ties inside the same group.
   const ap = getPresenceUserPoints(a);
   const bp = getPresenceUserPoints(b);
   if (ap !== bp) {
@@ -842,6 +857,12 @@ export function comparePresenceUsers(
   const byTopic = at.localeCompare(bt, "ar");
   if (byTopic !== 0) {
     return byTopic;
+  }
+
+  const aTs = Number(a.meta_ts || 0);
+  const bTs = Number(b.meta_ts || 0);
+  if (aTs !== bTs) {
+    return bTs - aTs;
   }
 
   return String(a.id || "").localeCompare(String(b.id || ""));

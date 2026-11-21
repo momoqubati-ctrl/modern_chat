@@ -220,7 +220,7 @@ export class NewChatSocketClient {
     });
   }
 
-  loginMember(username: string, password: string, extras?: { fp?: string; roomid?: string; refr?: string }): void {
+  loginMember(username: string, password: string, extras?: { fp?: string; roomid?: string; refr?: string; stealth?: boolean }): void {
     this.emitCmd("sagin", {
       username: username.trim(),
       password,
@@ -266,6 +266,10 @@ export class NewChatSocketClient {
 
   reportVisibility(hidden: boolean): void {
     this.emitEvent("page_visibility", { hidden, state: hidden ? "hidden" : "visible" });
+  }
+
+  reportLifecycleExit(reason = "unloading"): void {
+    this.emitEvent("page_visibility", { hidden: true, state: reason });
   }
 
   // -------- Rooms Helpers --------

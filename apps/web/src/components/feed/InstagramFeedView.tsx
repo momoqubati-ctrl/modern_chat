@@ -8,6 +8,7 @@ import { FeedPostCard } from "./FeedPostCard.js";
 import { FeedCommentsSheet } from "./FeedCommentsSheet.js";
 import { FeedCreatePostModal } from "./FeedCreatePostModal.js";
 import { FeedPostGiftsModal } from "./FeedPostGiftsModal.js";
+import { FeedShareModal } from "./FeedShareModal.js";
 import { CreateStoryModal } from "../stories/CreateStoryModal.js";
 import { StoryViewerModal } from "../stories/StoryViewerModal.js";
 
@@ -59,6 +60,7 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
   const closeGiftsModal = useFeedStore((s) => s.closeGiftsModal);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [sharingPost, setSharingPost] = useState<FeedPost | null>(null);
   const [giftingPost, setGiftingPost] = useState<FeedPost | null>(null);
   const [selectedGiftFile, setSelectedGiftFile] = useState<string>("");
   const [giftQuantity, setGiftQuantity] = useState(1);
@@ -241,13 +243,14 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
           <div className="w-full flex flex-col items-center">
             {posts.map((post) => (
               <FeedPostCard
-                key={post.postId}
+                key={post.feedItemId || (post.repostAuthor ? `repost_${post.repostAuthor.uid}_${post.postId}` : post.postId)}
                 post={post}
                 dark={dark}
                 currentUid={me?.uid ? String(me.uid) : undefined}
                 onLike={(pId) => toggleLikePost(pId, apiUrl, token)}
                 onBookmark={(pId) => toggleBookmarkPost(pId, apiUrl, token)}
-                onRepost={(pId) => toggleRepost(pId, apiUrl, token)}
+                onRepost={(pId) => toggleRepost(pId, apiUrl, token, currentAuthor)}
+                onOpenShareModal={(p) => setSharingPost(p)}
                 onFollow={(authorUid) => toggleFollow(authorUid, apiUrl, token)}
                 onOpenComments={(pId) => openComments(pId, apiUrl, token)}
                 onViewGifts={(pId) => openGiftsModal(pId, apiUrl, token)}
@@ -438,6 +441,22 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
         isLoading={isLoadingGifts}
         giftsData={viewingGiftsData}
         onClose={closeGiftsModal}
+      />
+
+      {/* 9. Share / Repost Modal */}
+      <FeedShareModal
+        dark={dark}
+        isOpen={Boolean(sharingPost)}
+        post={sharingPost}
+        onClose={() => setSharingPost(null)}
+        onShareToFeed={async (pId) => {
+          const ok = await toggleRepost(pId, apiUrl, token, currentAuthor);
+          if (ok) {
+            pushNotice("تمت مشاركة المنشور في خلاصتك بنجاح! 🚀", { topic: "الخلاصة" });
+          } else {
+            pushNotice("تم إلغاء مشاركة المنشور من خلاصتك", { topic: "الخلاصة" });
+          }
+        }}
       />
     </div>
   );

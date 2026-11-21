@@ -107,7 +107,7 @@ export function CreateVoiceRoomModal({
         hourly_rank: "🔥 ترتيب كل ساعة",
       });
 
-      pushNotice("تم إنشاء القناة الصوتية المباشرة بنجاح! جاري الدخول...", { force: 1 });
+      pushNotice("جاري إنشاء القناة الصوتية المباشرة...", { force: 1 });
       onClose();
       if (onRoomCreated) {
         onRoomCreated(finalTopic);

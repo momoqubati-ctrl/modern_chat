@@ -32,7 +32,6 @@ import { apiConfig } from "../config.js";
 import {
   getEntrySlides,
   getHostSettingRow,
-  getOnlineUserCount,
   getOnlineUsersSnapshotList,
   getOwnerRow,
   getPowersList,
@@ -219,19 +218,21 @@ export async function registerPublicRoutes(app: FastifyInstance) {
     reply.header("Pragma", "no-cache");
     reply.header("Expires", "0");
     try {
-      const [onlineAll, onlineCount, powersList] = await Promise.all([
+      const [onlineAll, powersList] = await Promise.all([
         getOnlineUsersSnapshotList(),
-        getOnlineUserCount(),
         getPowersList(),
       ]);
+      const visibleOnlineList = (onlineAll as unknown as OnlineUserSnapshot[]).filter(
+        (u) => !u.s && !(u as any).stealth && !u.offline && Number(u.stat || 0) !== 3,
+      );
       const visibleOnline = sortOnlineSnapshots(
-        onlineAll.filter((u) => !u.s) as unknown as OnlineUserSnapshot[],
+        visibleOnlineList,
         powersList,
       ).slice(0, LOGIN_ONLINE_PREVIEW_LIMIT);
       return {
         powers: powersList,
         online: visibleOnline,
-        onlineCount,
+        onlineCount: visibleOnlineList.length,
         ts: Date.now(),
       };
     } catch {
@@ -242,20 +243,22 @@ export async function registerPublicRoutes(app: FastifyInstance) {
   app.get("/bootstrap", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     try {
-      const [onlineAll, onlineCount, powersList, roomsSnap, staticBoot] = await Promise.all([
+      const [onlineAll, powersList, roomsSnap, staticBoot] = await Promise.all([
         getOnlineUsersSnapshotList(),
-        getOnlineUserCount(),
         getPowersList(),
         readRoomsSnapshot(),
         readBootstrapStaticConfig(req.hostname),
       ]);
+      const visibleOnlineList = (onlineAll as unknown as OnlineUserSnapshot[]).filter(
+        (u) => !u.s && !(u as any).stealth && !u.offline && Number(u.stat || 0) !== 3,
+      );
       const visibleOnline = sortOnlineSnapshots(
-        onlineAll.filter((u) => !u.s) as unknown as OnlineUserSnapshot[],
+        visibleOnlineList,
         powersList,
       ).slice(0, LOGIN_ONLINE_PREVIEW_LIMIT);
 
       return {
-        onlineCount,
+        onlineCount: visibleOnlineList.length,
         online: visibleOnline,
         powers: powersList,
         rooms: roomsSnap.rooms,

@@ -10,6 +10,7 @@ import {
   MOBILE_BACKGROUND_DISCONNECT_GRACE_MS,
   normalizeActiveChatUsername,
   sortOnlineSnapshots,
+  verOwner,
   verStealthPanel,
   type OnlineUserSnapshot,
 } from "@newchat/shared";
@@ -396,7 +397,9 @@ export class PresenceDirectory {
     } catch {
       // ignore
     }
+    this.io.emit("msg", { cmd: "ur", data: { id: session.id, roomid: null } });
     this.io.emit("msg", { cmd: "u^", data: pinned });
+    this.queueRoomCountsBroadcast();
   }
 
   async removeSession(
@@ -462,6 +465,10 @@ export class PresenceDirectory {
       sess.islogin === "عضو"
         ? MOBILE_BACKGROUND_DISCONNECT_GRACE_MS
         : GUEST_BACKGROUND_DISCONNECT_GRACE_MS;
+
+    if (delayMs <= 0) {
+      return false;
+    }
 
     const timer = setTimeout(() => {
       this.backgroundGraceTimers.delete(socketId);
@@ -630,13 +637,26 @@ export class PresenceDirectory {
     return Array.from(byId.values());
   }
 
-  async buildOnlineSnapshots(viewerPower?: string): Promise<OnlineUserSnapshot[]> {
-    const canSeeStealth = verStealthPanel(this.catalogStore.getPowers(), viewerPower || "");
+  async buildOnlineSnapshots(viewerPower?: string, viewerSocketId?: string): Promise<OnlineUserSnapshot[]> {
+    const powers = this.catalogStore.getPowers();
+    const viewerPowerDef = viewerPower ? this.catalogStore.getPowerRole(viewerPower) : null;
+    const viewerRank = Number(viewerPowerDef?.rank || 0);
+    const viewerHasStealthPerm = verStealthPanel(powers, viewerPower || "") || verOwner(powers, viewerPower || "");
+
     const live = await this.getAllOnlineSessions();
     const out: OnlineUserSnapshot[] = [];
 
     for (const s of live) {
-      if (s.stealth && !canSeeStealth) continue;
+      if (s.stealth) {
+        const isSelf = Boolean(viewerSocketId && s.id === viewerSocketId);
+        const targetPowerDef = this.catalogStore.getPowerRole(s.rank || s.power);
+        const targetRank = Number(targetPowerDef?.rank || 0);
+        const canSeeByRank = viewerHasStealthPerm && viewerRank >= targetRank;
+
+        if (!isSelf && !canSeeByRank) {
+          continue;
+        }
+      }
       const pub = sanitizePublicSnapshot(s);
       if (pub) out.push(pub);
     }
@@ -646,7 +666,7 @@ export class PresenceDirectory {
         const pinnedRaw = await getRedis().hvals(REDIS_KEYS.presencePinned);
         for (const raw of pinnedRaw) {
           const parsed = safeJsonParse<OnlineUserSnapshot | null>(raw, null);
-          if (parsed?.id && !out.some((o) => o.uid && o.uid === parsed.uid)) {
+          if (parsed?.id && !parsed.s && !out.some((o) => o.uid && o.uid === parsed.uid)) {
             out.push(parsed);
           }
         }
@@ -669,7 +689,7 @@ export class PresenceDirectory {
   }
 
   async emitAuthoritativeSync(socket: Socket, viewerPower?: string): Promise<void> {
-    const usersList = await this.buildOnlineSnapshots(viewerPower);
+    const usersList = await this.buildOnlineSnapshots(viewerPower, socket.id);
     socket.emit("msg", { cmd: "presence_sync", data: usersList });
   }
 }

@@ -376,3 +376,207 @@ export async function ensureFeedTablesExist(): Promise<void> {
   }
   await feedTablesEnsurePromise;
 }
+
+let coreTablesEnsurePromise: Promise<void> | null = null;
+
+export async function ensureCoreSocialAndRoomTablesExist(): Promise<void> {
+  if (!coreTablesEnsurePromise) {
+    const { pool } = getDb();
+    coreTablesEnsurePromise = pool
+      .query(`
+        CREATE TABLE IF NOT EXISTS rooms (
+          idroom SERIAL PRIMARY KEY,
+          about VARCHAR(255),
+          "user" VARCHAR(255),
+          pass VARCHAR(255),
+          id VARCHAR(255),
+          owner VARCHAR(255),
+          topic VARCHAR(255),
+          pic VARCHAR(255),
+          rmli INTEGER DEFAULT 0,
+          mic INTEGER DEFAULT 0,
+          welcome VARCHAR(255),
+          broadcast BOOLEAN DEFAULT FALSE,
+          deleted BOOLEAN DEFAULT FALSE,
+          needpass BOOLEAN DEFAULT FALSE,
+          color VARCHAR(255) DEFAULT '#000000',
+          max INTEGER DEFAULT 0,
+          stage_count INTEGER DEFAULT 5,
+          stage_state TEXT,
+          room_owner_meta TEXT,
+          message_mode VARCHAR(16) DEFAULT 'real'
+        );
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS stage_count INTEGER DEFAULT 5;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS stage_state TEXT;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_owner_meta TEXT;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS message_mode VARCHAR(16) DEFAULT 'real';
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS broadcast BOOLEAN DEFAULT FALSE;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT FALSE;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS needpass BOOLEAN DEFAULT FALSE;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS color VARCHAR(255) DEFAULT '#000000';
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS max INTEGER DEFAULT 0;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS rmli INTEGER DEFAULT 0;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS mic INTEGER DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS idx_rooms_id ON rooms (id);
+        CREATE INDEX IF NOT EXISTS idx_rooms_owner ON rooms (owner);
+        CREATE INDEX IF NOT EXISTS idx_rooms_topic ON rooms (topic);
+
+        CREATE TABLE IF NOT EXISTS room_welcome_visits (
+          id SERIAL PRIMARY KEY,
+          room_id VARCHAR(255) NOT NULL,
+          identity_key VARCHAR(255) NOT NULL,
+          is_guest BOOLEAN DEFAULT FALSE,
+          first_seen BIGINT DEFAULT 0,
+          last_seen BIGINT DEFAULT 0,
+          visits INTEGER DEFAULT 1
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uniq_room_welcome_visit ON room_welcome_visits (room_id, identity_key);
+        CREATE INDEX IF NOT EXISTS idx_room_welcome_room ON room_welcome_visits (room_id);
+
+        CREATE TABLE IF NOT EXISTS storie (
+          id SERIAL PRIMARY KEY,
+          sid VARCHAR(255) DEFAULT '',
+          photo VARCHAR(255) DEFAULT '',
+          name VARCHAR(255) DEFAULT '',
+          link VARCHAR(255) DEFAULT '',
+          lastUpdated VARCHAR(255) DEFAULT '',
+          item TEXT DEFAULT '[]',
+          seen BOOLEAN DEFAULT FALSE,
+          currentPreview VARCHAR(2000) DEFAULT '[]'
+        );
+        ALTER TABLE storie ADD COLUMN IF NOT EXISTS seen BOOLEAN DEFAULT FALSE;
+        ALTER TABLE storie ADD COLUMN IF NOT EXISTS currentPreview VARCHAR(2000) DEFAULT '[]';
+        CREATE INDEX IF NOT EXISTS idx_storie_sid ON storie (sid);
+
+        CREATE TABLE IF NOT EXISTS storieview (
+          id SERIAL PRIMARY KEY,
+          sid VARCHAR(255) DEFAULT '',
+          topic VARCHAR(255) DEFAULT '',
+          photo VARCHAR(255) DEFAULT '',
+          idsto VARCHAR(255) DEFAULT '',
+          item INTEGER DEFAULT 0,
+          time TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_storieview_sid ON storieview (sid);
+        CREATE INDEX IF NOT EXISTS idx_storieview_idsto ON storieview (idsto);
+
+        CREATE TABLE IF NOT EXISTS story_likes (
+          id BIGSERIAL PRIMARY KEY,
+          story_sid VARCHAR(255) NOT NULL,
+          item_id VARCHAR(64) NOT NULL,
+          user_uid VARCHAR(255) NOT NULL,
+          topic VARCHAR(255) DEFAULT '',
+          photo VARCHAR(255) DEFAULT '',
+          created_at BIGINT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_likes_target ON story_likes (story_sid, item_id);
+        CREATE INDEX IF NOT EXISTS idx_story_likes_user ON story_likes (story_sid, item_id, user_uid);
+
+        CREATE TABLE IF NOT EXISTS story_comments (
+          id BIGSERIAL PRIMARY KEY,
+          cid VARCHAR(64) NOT NULL,
+          story_sid VARCHAR(255) NOT NULL,
+          item_id VARCHAR(64) NOT NULL,
+          parent_cid VARCHAR(64) DEFAULT '',
+          reply_to_topic VARCHAR(255) DEFAULT '',
+          author_uid VARCHAR(255) NOT NULL,
+          author_topic VARCHAR(255) DEFAULT '',
+          author_pic VARCHAR(255) DEFAULT '',
+          author_ucol VARCHAR(64) DEFAULT '',
+          author_verified BOOLEAN DEFAULT FALSE,
+          body TEXT NOT NULL,
+          likes_count INTEGER DEFAULT 0,
+          created_at BIGINT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_comments_target ON story_comments (story_sid, item_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_story_comments_cid ON story_comments (cid);
+        CREATE INDEX IF NOT EXISTS idx_story_comments_parent ON story_comments (parent_cid);
+
+        CREATE TABLE IF NOT EXISTS story_comment_likes (
+          id BIGSERIAL PRIMARY KEY,
+          comment_cid VARCHAR(64) NOT NULL,
+          user_uid VARCHAR(255) NOT NULL,
+          created_at BIGINT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_comment_likes_cid_user ON story_comment_likes (comment_cid, user_uid);
+
+        CREATE TABLE IF NOT EXISTS powers (
+          id SERIAL PRIMARY KEY,
+          powers TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS owner (
+          id SERIAL PRIMARY KEY,
+          bars BOOLEAN DEFAULT TRUE,
+          "Vpn" BOOLEAN DEFAULT FALSE,
+          "Gust" TEXT,
+          datafinish TIMESTAMP DEFAULT NOW(),
+          "MaxRep" INTEGER DEFAULT 3,
+          "Tv" TEXT,
+          "Vistor" TEXT,
+          room VARCHAR(255),
+          isbanner BOOLEAN DEFAULT FALSE,
+          rc BOOLEAN DEFAULT FALSE,
+          cooment BOOLEAN DEFAULT FALSE,
+          offline BOOLEAN DEFAULT FALSE
+        );
+        CREATE INDEX IF NOT EXISTS idx_owner_room ON owner (room);
+
+        CREATE TABLE IF NOT EXISTS site (
+          id SERIAL PRIMARY KEY,
+          banner VARCHAR(255),
+          host VARCHAR(255),
+          ids INTEGER,
+          logo VARCHAR(255)
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+          id SERIAL PRIMARY KEY,
+          site TEXT,
+          dro3 TEXT,
+          them TEXT,
+          cover TEXT,
+          emo TEXT,
+          sico TEXT,
+          room_badges TEXT,
+          site_badges TEXT,
+          gifts_git TEXT,
+          gift_categories TEXT
+        );
+
+        -- Synchronize sequences safely
+        DO $$
+        BEGIN
+          IF pg_get_serial_sequence('rooms', 'idroom') IS NOT NULL THEN
+            PERFORM setval(pg_get_serial_sequence('rooms', 'idroom'), COALESCE((SELECT MAX(idroom) FROM rooms), 0) + 1, false);
+          END IF;
+          IF pg_get_serial_sequence('storie', 'id') IS NOT NULL THEN
+            PERFORM setval(pg_get_serial_sequence('storie', 'id'), COALESCE((SELECT MAX(id) FROM storie), 0) + 1, false);
+          END IF;
+          IF pg_get_serial_sequence('user_notes', 'id') IS NOT NULL THEN
+            PERFORM setval(pg_get_serial_sequence('user_notes', 'id'), COALESCE((SELECT MAX(id) FROM user_notes), 0) + 1, false);
+          END IF;
+        END $$;
+
+        -- Seed default room if empty
+        INSERT INTO rooms (id, topic, about, welcome, "user", pass, needpass, broadcast, deleted, owner, pic, max, stage_count)
+        SELECT 'general', 'الغرفة العامة', 'غرفة الدردشة العامة لجميع الأعضاء والزوار', 'أهلاً بكم في شات سمر، نرجو احترام القوانين وقضاء وقت ممتع!', 'الإدارة', '', false, false, false, '#1', 'pic.png', 100, 5
+        WHERE NOT EXISTS (SELECT 1 FROM rooms);
+      `)
+      .then(() => {})
+      .catch((err: unknown) => {
+        coreTablesEnsurePromise = null;
+        throw err;
+      });
+  }
+  await coreTablesEnsurePromise;
+}
+
+export async function ensureAllDatabaseTablesExist(): Promise<void> {
+  await Promise.all([
+    ensureGiftSystemTablesExist(),
+    ensureFeedTablesExist(),
+    ensureNotesTablesExist(),
+    ensureCoreSocialAndRoomTablesExist(),
+  ]);
+}

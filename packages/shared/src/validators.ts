@@ -15,6 +15,7 @@ export const memberLoginSchema = z.object({
   refr: z.string().trim().max(255).optional().default("web"),
   fp: z.string().trim().max(255).optional().default(""),
   roomid: z.string().trim().max(128).optional().nullable(),
+  stealth: z.boolean().optional().default(false),
 });
 
 export const registerSchema = z.object({

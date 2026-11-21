@@ -24,6 +24,7 @@ export interface FeedMediaItem {
 export interface FeedPost {
   id: number;
   postId: string;
+  feedItemId?: string;
   author: FeedAuthor;
   caption: string;
   mediaType: "image" | "carousel" | "video";
@@ -41,6 +42,7 @@ export interface FeedPost {
   isReposted?: boolean;
   isFollowing?: boolean;
   repostAuthor?: FeedAuthor | null;
+  repostedAt?: number;
 }
 
 export interface PostGiftSenderItem {
@@ -100,7 +102,7 @@ interface FeedState {
   loadMorePosts: (apiUrl?: string, token?: string) => Promise<void>;
   toggleLikePost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
   toggleBookmarkPost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
-  toggleRepost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
+  toggleRepost: (postId: string, apiUrl?: string, token?: string, currentAuthor?: FeedAuthor) => Promise<boolean>;
   toggleFollow: (targetUid: string, apiUrl?: string, token?: string) => Promise<void>;
   createPost: (
     params: {
@@ -274,21 +276,45 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     }
   },
 
-  toggleRepost: async (postId: string, apiUrl = "", token = "") => {
-    if (!token) return;
+  toggleRepost: async (postId: string, apiUrl = "", token = "", currentAuthor?: FeedAuthor) => {
+    if (!token) return false;
 
     // Optimistic toggle
-    set((state) => ({
-      posts: state.posts.map((p) => {
+    let willRepost = true;
+    set((state) => {
+      const targetPost = state.posts.find((p) => p.postId === postId);
+      willRepost = targetPost ? !targetPost.isReposted : true;
+
+      // Update all instances of this post in store
+      let nextPosts = state.posts.map((p) => {
         if (p.postId !== postId) return p;
-        const willRepost = !p.isReposted;
         return {
           ...p,
           isReposted: willRepost,
           repostsCount: willRepost ? p.repostsCount + 1 : Math.max(0, p.repostsCount - 1),
         };
-      }),
-    }));
+      });
+
+      // If user is reposting and currentAuthor is available, prepend optimistic shared post
+      if (willRepost && targetPost && currentAuthor) {
+        const optimisticSharedPost: FeedPost = {
+          ...targetPost,
+          feedItemId: `repost_client_${Date.now()}_${targetPost.postId}`,
+          repostAuthor: currentAuthor,
+          repostedAt: Date.now(),
+          isReposted: true,
+          repostsCount: targetPost.repostsCount + 1,
+        };
+        nextPosts = [optimisticSharedPost, ...nextPosts];
+      } else if (!willRepost && currentAuthor) {
+        // If un-reposting, filter out any repost entry by current user
+        nextPosts = nextPosts.filter(
+          (p) => !(p.postId === postId && p.repostAuthor?.uid === currentAuthor.uid)
+        );
+      }
+
+      return { posts: nextPosts };
+    });
 
     try {
       const res = await fetch(`${apiUrl}/api/feed/posts/${postId}/repost`, {
@@ -304,10 +330,13 @@ export const useFeedStore = create<FeedState>((set, get) => ({
               : p
           ),
         }));
+        return Boolean(data.reposted);
       }
+      return false;
     } catch {
       // Revert if error
       get().loadPosts(apiUrl, token);
+      return false;
     }
   },
 

@@ -111,7 +111,9 @@ export async function disconnectUserSession(
     !opts?.forceImmediate &&
     !session.kicked &&
     !session.loggedOut &&
-    session.islogin !== "بوت" &&
+    !session.pageLifecycleExit &&
+    opts?.reason !== "client namespace disconnect" &&
+    session.islogin === "عضو" &&
     Boolean(session.pageHidden);
 
   if (canGraceDelay) {
@@ -134,6 +136,7 @@ async function finalizeSessionRemoval(
     session.islogin === "عضو" &&
     Boolean(session.uid) &&
     !session.stealth &&
+    !session.loggedOut &&
     !session.kicked;
 
   if (shouldPinOffline) {
@@ -479,7 +482,7 @@ export function createAuthHandlers(ctx: GatewayContext) {
     socket.emit("msg", { cmd: "rlist", data: roomsList });
     socket.emit("msg", { cmd: "rooms_counts", data: roomCounts });
 
-    const onlineList = await ctx.presenceDirectory.buildOnlineSnapshots(session.rank || session.power);
+    const onlineList = await ctx.presenceDirectory.buildOnlineSnapshots(session.rank || session.power, socket.id);
     socket.emit("msg", { cmd: "ulist", data: onlineList });
     socket.emit("msg", { cmd: "presence_sync", data: onlineList });
 
@@ -800,6 +803,7 @@ export function createAuthHandlers(ctx: GatewayContext) {
         refr: String(d.refr || "web"),
         fp: String(d.fp || ""),
         roomid: d.roomid ? String(d.roomid) : undefined,
+        stealth: Boolean(d.stealth ?? d.eye ?? d.s),
       });
       if (!parsed.success) {
         const msg = "الرجاء إدخال اسم المستخدم وكلمة المرور";
@@ -887,7 +891,8 @@ export function createAuthHandlers(ctx: GatewayContext) {
       });
 
       const powers = ctx.catalogStore.getPowers();
-      const canStealth = Boolean(userRow.loginG) && verStealthPanel(powers, userRow.power);
+      const hasStealthPermission = verStealthPanel(powers, userRow.power) || verOwner(powers, userRow.power);
+      const isStealth = Boolean(parsed.data.stealth && hasStealthPermission);
       const siteBadge = userRow.site_badge_id
         ? ctx.catalogStore.getSiteBadgeById(userRow.site_badge_id) || safeJsonParse(userRow.site_badge, "")
         : safeJsonParse(userRow.site_badge, "");
@@ -946,7 +951,8 @@ export function createAuthHandlers(ctx: GatewayContext) {
         auto_power: userRow.auto_power || "",
         eval_awards: parseEvaluationAwardsJson(userRow.eval_awards_json),
         loginG: Boolean(userRow.loginG),
-        stealth: canStealth,
+        stealth: isStealth,
+        s: isStealth ? 1 : null,
         muted: Boolean(userRow.muted),
         ismuted: Boolean(userRow.muted),
         meta_ts: Date.now(),
@@ -1198,7 +1204,7 @@ export function createAuthHandlers(ctx: GatewayContext) {
         }
 
         const powers = ctx.catalogStore.getPowers();
-        const canStealth = Boolean(userRow.loginG) && verStealthPanel(powers, userRow.power);
+        const canStealth = false;
         const targetRoom =
           requestedRoomId && ctx.catalogStore.getRoomById(requestedRoomId)
             ? requestedRoomId
@@ -1261,6 +1267,7 @@ export function createAuthHandlers(ctx: GatewayContext) {
           eval_awards: parseEvaluationAwardsJson(userRow.eval_awards_json),
           loginG: Boolean(userRow.loginG),
           stealth: canStealth,
+          s: null,
           muted: Boolean(userRow.muted),
           ismuted: Boolean(userRow.muted),
           meta_ts: Date.now(),
@@ -1340,12 +1347,19 @@ export function createAuthHandlers(ctx: GatewayContext) {
       const session = ctx.presenceDirectory.getLocalSession(socket.id);
       if (!session) return;
       const d = rawData && typeof rawData === "object" ? (rawData as Record<string, unknown>) : {};
+      const state = String(d.state || d.visibilityState || "").trim().toLowerCase();
+      if (state === "unloading" || state === "pagehide" || state === "beforeunload") {
+        session.pageLifecycleExit = true;
+        ctx.presenceDirectory.cancelBackgroundGrace(socket.id);
+        return;
+      }
       const hidden =
         typeof rawData === "boolean"
           ? rawData
-          : Boolean(d.hidden ?? (String(d.state || d.visibilityState || "") === "hidden"));
+          : Boolean(d.hidden ?? (state === "hidden"));
       session.pageHidden = hidden;
       if (!hidden) {
+        session.pageLifecycleExit = false;
         ctx.presenceDirectory.cancelBackgroundGrace(socket.id);
       }
     },

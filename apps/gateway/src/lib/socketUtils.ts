@@ -272,7 +272,7 @@ export function sanitizePublicSnapshot(
     nopmvideocall: Boolean(session.nopmvideocall),
     meiut: Boolean(session.ismuted || session.muted),
     muted: Boolean(session.muted || session.ismuted),
-    s: session.s ?? null,
+    s: (session.s != null ? session.s : session.stealth ? 1 : null) as OnlineUserSnapshot["s"],
     meta_ts: Number(session.meta_ts || Date.now()),
   };
 }

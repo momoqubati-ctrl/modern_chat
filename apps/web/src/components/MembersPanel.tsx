@@ -34,23 +34,46 @@ export function MembersPanel({
     const list =
       scope === "all" || !currentRoomId
         ? onlineIds
-        : onlineIds.filter((id) => onlineMap[id]?.roomid === currentRoomId);
+        : onlineIds.filter(
+            (id) =>
+              onlineMap[id]?.roomid === currentRoomId &&
+              !onlineMap[id]?.offline &&
+              Number(onlineMap[id]?.stat || 0) !== 3,
+          );
 
     const usersList = list
       .map((id) => onlineMap[id])
       .filter((u): u is OnlineUserSnapshot => Boolean(u?.id));
 
+    const myPowerDef = powers.find((p) => p.name === me?.power || p.name === me?.rank);
+    const myRank = Number(myPowerDef?.rank || 0);
+    const myHasStealth = Boolean(myPowerDef && (Number(myPowerDef.stealth || 0) === 1 || Number(myPowerDef.owner || 0) === 1));
+
+    const visibleUsersList = usersList.filter((u) => {
+      if (!u.s && !(u as any).stealth) return true;
+      if (u.id === me?.id) return true;
+      const targetPowerDef = powers.find((p) => p.name === u.power || p.name === u.rank);
+      const targetRank = Number(targetPowerDef?.rank || 0);
+      return myHasStealth && myRank >= targetRank;
+    });
+
     const sorted = sortOnlineSnapshots(
-      usersList,
+      visibleUsersList,
       powers,
-      scope === "all" ? currentRoomId : null,
+      currentRoomId,
     );
 
     return sorted.map((u) => u.id);
-  }, [scope, currentRoomId, onlineIds, onlineMap, powers]);
+  }, [scope, currentRoomId, onlineIds, onlineMap, powers, me]);
 
   const roomCount = useMemo(
-    () => onlineIds.filter((id) => onlineMap[id]?.roomid === currentRoomId).length,
+    () =>
+      onlineIds.filter(
+        (id) =>
+          onlineMap[id]?.roomid === currentRoomId &&
+          !onlineMap[id]?.offline &&
+          Number(onlineMap[id]?.stat || 0) !== 3,
+      ).length,
     [onlineIds, onlineMap, currentRoomId],
   );
 

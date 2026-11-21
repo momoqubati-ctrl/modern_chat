@@ -611,7 +611,8 @@ export async function getOnlineUsersSnapshotList(): Promise<Array<Record<string,
 
 export async function getOnlineUserCount(): Promise<number> {
   try {
-    return await getRedis().hlen("newchat:presence:users");
+    const list = await getOnlineUsersSnapshotList();
+    return list.filter((u) => !u.s && !(u as any).stealth && !u.offline && Number(u.stat || 0) !== 3).length;
   } catch {
     return 0;
   }

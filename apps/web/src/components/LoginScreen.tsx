@@ -155,7 +155,7 @@ export function LoginScreen({ dark, onToggleTheme, onNavigate }: LoginScreenProp
     () =>
       onlineIds
         .map((id) => onlineMap[id])
-        .filter((u): u is NonNullable<typeof u> => Boolean(u && !u.s && u.id)),
+        .filter((u): u is NonNullable<typeof u> => Boolean(u && !u.s && !(u as any).stealth && !u.offline && Number(u.stat || 0) !== 3 && u.id)),
     [onlineIds, onlineMap],
   );
 

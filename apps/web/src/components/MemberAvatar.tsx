@@ -125,7 +125,11 @@ export function MemberPrefixIcons({
   const icoSrc = getUserIco(user, activePowers);
   const giftIcoSrc = getUserGiftIco(user);
 
-  if (!giftIcoSrc && !icoSrc) return null;
+  const userRoleName = user.rank || user.power;
+  const userRole = userRoleName && activePowers ? activePowers.find((p) => p.name === userRoleName) : null;
+  const roleIcoSrc = userRole?.ico ? resolvePowerIco(userRole.ico) : "";
+
+  if (!giftIcoSrc && !roleIcoSrc && !icoSrc) return null;
 
   const giftSizeClass =
     size === "sm"
@@ -133,6 +137,8 @@ export function MemberPrefixIcons({
       : size === "lg"
         ? "w-5 h-5 min-w-[20px] max-h-[20px]"
         : "w-[18px] h-[18px] min-w-[18px] max-h-[18px]";
+
+  const roleSizeClass = giftSizeClass;
 
   const icoSizeClass =
     size === "sm"
@@ -143,6 +149,7 @@ export function MemberPrefixIcons({
 
   return (
     <span className="inline-flex items-center gap-1 shrink-0">
+      {/* 1. ايقونه الاسم */}
       {giftIcoSrc && (
         <img
           src={giftIcoSrc}
@@ -154,6 +161,19 @@ export function MemberPrefixIcons({
           }}
         />
       )}
+      {/* 2. ايقونه الترقية (الرتب) */}
+      {roleIcoSrc && (
+        <img
+          src={roleIcoSrc}
+          alt=""
+          title={userRole?.name || "رتبة"}
+          className={`${roleSizeClass} object-contain shrink-0`}
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+      )}
+      {/* 3. بنر الاسم */}
       {icoSrc && (
         <img
           src={icoSrc}

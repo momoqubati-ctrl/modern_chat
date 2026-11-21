@@ -1,8 +1,10 @@
 import { and, eq, getDb, getRecentChatMessages, getRedis, room_welcome_visits, rooms, users } from "@newchat/db";
 import {
   MIC_SLOT_COUNT,
+  canCreateVoiceRoom,
   compactMessageData,
   getSystemRoomOwner,
+  isLegacyHostingSuperPower,
   normalizeLiveRoomConfig,
   normalizeRoomMessageMode,
   normalizeRoomOwnerAssignment,
@@ -297,180 +299,209 @@ export function createRoomHandlers(ctx: GatewayContext) {
     },
 
     async handleCreateRoom(socket: Socket, rawData: unknown): Promise<void> {
-      const session = ctx.presenceDirectory.getLocalSession(socket.id);
-      if (!session || !rawData || typeof rawData !== "object") return;
-      const d = rawData as Record<string, unknown>;
+      try {
+        const session = ctx.presenceDirectory.getLocalSession(socket.id);
+        if (!session || !rawData || typeof rawData !== "object") return;
+        const d = rawData as Record<string, unknown>;
 
-      const isVoiceRoom = Boolean(d.is_live_audio || d.room_type === "live_audio" || d.isVoiceLive);
-      const powerDef = ctx.catalogStore.getPowerRole(session.rank || session.power);
-      if (isVoiceRoom) {
-        const hasVoicePerm = Boolean(
-          powerDef && (
-            Number(powerDef.can_create_voice_room || 0) ||
-            Number(powerDef.owner || 0) ||
-            Number(powerDef.cp || 0)
-          )
-        );
-        if (!hasVoicePerm) {
-          emitNotice(socket, "لا تملك صلاحية إنشاء قناة صوتية");
+        const isVoiceRoom = Boolean(d.is_live_audio || d.room_type === "live_audio" || d.isVoiceLive);
+        const powersList = ctx.catalogStore.getPowers();
+        const userPowerName = session.rank || session.power;
+        const isRootOwner = Number(session.idreg || 0) === 1;
+
+        if (isVoiceRoom) {
+          const hasVoicePerm =
+            isRootOwner ||
+            canCreateVoiceRoom(powersList, userPowerName) ||
+            isLegacyHostingSuperPower(userPowerName);
+          if (!hasVoicePerm) {
+            emitNotice(socket, "لا تملك صلاحية إنشاء قناة صوتية");
+            return;
+          }
+        } else {
+          const powerDef = ctx.catalogStore.getPowerRole(userPowerName);
+          const hasRoomPerm =
+            isRootOwner ||
+            isLegacyHostingSuperPower(userPowerName) ||
+            Boolean(
+              powerDef && (
+                Number(powerDef.createroom || 0) ||
+                Number(powerDef.owner || 0) ||
+                Number(powerDef.cp || 0) ||
+                Number(powerDef.grupes || 0)
+              )
+            );
+          if (!hasRoomPerm) {
+            emitNotice(socket, "لا تملك صلاحية انشاء غرف");
+            return;
+          }
+        }
+
+        if (ctx.catalogStore.getRooms().length >= gatewayConfig.maxRooms) {
+          emitNotice(socket, "تم إنشاء الحد الاقصى لرومات");
           return;
         }
-      } else if (!powerDef || !Number(powerDef.createroom || 0)) {
-        emitNotice(socket, "لا تملك صلاحية انشاء غرف");
-        return;
-      }
 
-      if (ctx.catalogStore.getRooms().length >= gatewayConfig.maxRooms) {
-        emitNotice(socket, "تم إنشاء الحد الاقصى لرومات");
-        return;
-      }
+        const topic = sanitizeHtmlText(String(d.topic || "").trim().slice(0, 80));
+        const about = sanitizeHtmlText(String(d.about || (isVoiceRoom ? "قناة صوتية مباشرة" : "")).trim().slice(0, 200));
+        const welcome = sanitizeHtmlText(String(d.welcome || (isVoiceRoom ? "مرحباً بكم في البث الصوتي المباشر" : "")).trim().slice(0, 250));
+        if (!topic || !about || !welcome) {
+          emitNotice(socket, "يرجى ملء جميع الحقول المطلوبة للغرفة");
+          return;
+        }
 
-      const topic = sanitizeHtmlText(String(d.topic || "").trim().slice(0, 80));
-      const about = sanitizeHtmlText(String(d.about || (isVoiceRoom ? "قناة صوتية مباشرة" : "")).trim().slice(0, 200));
-      const welcome = sanitizeHtmlText(String(d.welcome || (isVoiceRoom ? "مرحباً بكم في البث الصوتي المباشر" : "")).trim().slice(0, 250));
-      if (!topic || !about || !welcome) return;
+        const duplicate = ctx.catalogStore.getRooms().some(
+          (r) => r.topic.trim().toLowerCase() === topic.trim().toLowerCase(),
+        );
+        if (duplicate) {
+          emitNotice(socket, "يوجد غرفة تحمل نفس الاسم");
+          return;
+        }
 
-      const duplicate = ctx.catalogStore.getRooms().some(
-        (r) => r.topic.trim().toLowerCase() === topic.trim().toLowerCase(),
-      );
-      if (duplicate) {
-        emitNotice(socket, "يوجد غرفة تحمل نفس الاسم");
-        return;
-      }
+        const maxNum = Number.parseInt(String(d.max ?? 100), 10);
+        const safeMax = Number.isFinite(maxNum) ? Math.max(2, Math.min(500, maxNum)) : 100;
 
-      const maxNum = Number.parseInt(String(d.max ?? 100), 10);
-      const safeMax = Number.isFinite(maxNum) ? Math.max(2, Math.min(500, maxNum)) : 100;
+        const rate = await ctx.securityGuard.consumeRateSlot(`rplus:${socket.id}`, 4, 30_000);
+        if (!rate.ok) {
+          emitNotice(socket, "يرجى الانتظار قليلاً قبل إنشاء غرفة جديدة");
+          return;
+        }
 
-      const rate = await ctx.securityGuard.consumeRateSlot(`rplus:${socket.id}`, 4, 30_000);
-      if (!rate.ok) return;
+        const micCountRaw = Number.parseInt(String(d.stage_count ?? d.mic ?? (isVoiceRoom ? 12 : MIC_SLOT_COUNT)), 10);
+        const stageCount = Number.isFinite(micCountRaw)
+          ? Math.max(isVoiceRoom ? 2 : 0, Math.min(MIC_SLOT_COUNT, micCountRaw))
+          : (isVoiceRoom ? 12 : MIC_SLOT_COUNT);
+        const normalizedLocks = normalizeSlotLocks(d.micLocks);
+        const messageMode = normalizeRoomMessageMode(d.message_mode);
+        const pass = String(d.pass || "").trim().slice(0, 120);
+        const needpass = Boolean(pass);
+        const broadcast = isVoiceRoom ? true : Boolean(d.broadcast);
+        const isTemporary = Boolean(d.delete ?? d.deleted ?? true);
+        const pic = sanitizeHtmlText(String(d.pic || (isVoiceRoom && session.pic ? session.pic : "pic.png")).trim().slice(0, 250)) || "pic.png";
+        const color = sanitizeHtmlText(String(d.color || "#000000").trim().slice(0, 32)) || "#000000";
+        const rmli = Math.max(0, Number.parseInt(String(d.like ?? d.rmli ?? 0), 10) || 0);
 
-      const micCountRaw = Number.parseInt(String(d.stage_count ?? d.mic ?? (isVoiceRoom ? 12 : MIC_SLOT_COUNT)), 10);
-      const stageCount = Number.isFinite(micCountRaw)
-        ? Math.max(isVoiceRoom ? 2 : 0, Math.min(MIC_SLOT_COUNT, micCountRaw))
-        : (isVoiceRoom ? 12 : MIC_SLOT_COUNT);
-      const normalizedLocks = normalizeSlotLocks(d.micLocks);
-      const messageMode = normalizeRoomMessageMode(d.message_mode);
-      const pass = String(d.pass || "").trim().slice(0, 120);
-      const needpass = Boolean(pass);
-      const broadcast = isVoiceRoom ? true : Boolean(d.broadcast);
-      const isTemporary = Boolean(d.delete ?? d.deleted ?? true);
-      const pic = sanitizeHtmlText(String(d.pic || (isVoiceRoom && session.pic ? session.pic : "pic.png")).trim().slice(0, 250)) || "pic.png";
-      const color = sanitizeHtmlText(String(d.color || "#000000").trim().slice(0, 32)) || "#000000";
-      const rmli = Math.max(0, Number.parseInt(String(d.like ?? d.rmli ?? 0), 10) || 0);
+        const sysOwner = getSystemRoomOwner();
+        const ownerMeta = parseRoomOwnerMeta(sysOwner.meta);
+        if (isVoiceRoom && session.idreg) {
+          ownerMeta.ownerId = `#${session.idreg}`;
+          ownerMeta.ownerUser = session.username;
+          ownerMeta.ownerTopic = session.topic;
+        }
+        if (isVoiceRoom) {
+          ownerMeta.live_config = normalizeLiveRoomConfig({
+            is_live_audio: true,
+            join_mode: d.join_mode === "request" ? "request" : "free",
+            chat_locked: false,
+            gift_goal: d.gift_goal,
+            pinned_notice: d.pinned_notice || "مباشر وفي الوقت الفعلي، يلزم أن يكون عمر المذيعين 18 عاماً أو أكثر لبدء بث مباشر، ويلزم أن يكون عمر المشاهدين 18 عاماً أو أكثر لشحن الرصيد وإرسال الهدايا. تذكر اتباع إرشادات المجتمع لدينا.",
+            hourly_rank: d.hourly_rank || "🔥 ترتيب كل ساعة",
+          });
+        }
+        const selectedBadgeId = String(d.ownerBadgeId || "").trim();
+        const selectedBadge = ctx.catalogStore.getRoomBadgeById(selectedBadgeId);
+        ownerMeta.badge_id = selectedBadge ? selectedBadge.id : "";
+        ownerMeta.badge = normalizeRoomOwnerBadge(selectedBadge || d.ownerBadge || {});
+        const ownerMetaJson = JSON.stringify(ownerMeta);
+        const roomOwnerId = isVoiceRoom && session.idreg ? `#${session.idreg}` : (session.username || sysOwner.owner);
 
-      const sysOwner = getSystemRoomOwner();
-      const ownerMeta = parseRoomOwnerMeta(sysOwner.meta);
-      if (isVoiceRoom && session.idreg) {
-        ownerMeta.ownerId = `#${session.idreg}`;
-        ownerMeta.ownerUser = session.username;
-        ownerMeta.ownerTopic = session.topic;
-      }
-      if (isVoiceRoom) {
-        ownerMeta.live_config = normalizeLiveRoomConfig({
-          is_live_audio: true,
-          join_mode: d.join_mode === "request" ? "request" : "free",
-          chat_locked: false,
-          gift_goal: d.gift_goal,
-          pinned_notice: d.pinned_notice || "مباشر وفي الوقت الفعلي، يلزم أن يكون عمر المذيعين 18 عاماً أو أكثر لبدء بث مباشر، ويلزم أن يكون عمر المشاهدين 18 عاماً أو أكثر لشحن الرصيد وإرسال الهدايا. تذكر اتباع إرشادات المجتمع لدينا.",
-          hourly_rank: d.hourly_rank || "🔥 ترتيب كل ساعة",
-        });
-      }
-      const selectedBadgeId = String(d.ownerBadgeId || "").trim();
-      const selectedBadge = ctx.catalogStore.getRoomBadgeById(selectedBadgeId);
-      ownerMeta.badge_id = selectedBadge ? selectedBadge.id : "";
-      ownerMeta.badge = normalizeRoomOwnerBadge(selectedBadge || d.ownerBadge || {});
-      const ownerMetaJson = JSON.stringify(ownerMeta);
-      const roomOwnerId = isVoiceRoom && session.idreg ? `#${session.idreg}` : (session.username || sysOwner.owner);
+        const newRoomId = stringGen(10);
+        const { db } = getDb();
+        const [created] = await db
+          .insert(rooms)
+          .values({
+            id: newRoomId,
+            topic,
+            about,
+            welcome,
+            user: sanitizeHtmlText(session.topic).slice(0, 250),
+            pass,
+            needpass,
+            broadcast,
+            deleted: isTemporary,
+            owner: roomOwnerId,
+            pic,
+            rmli,
+            max: safeMax,
+            color,
+            mic: stageCount,
+            stage_count: stageCount,
+            stage_state: JSON.stringify(normalizedLocks),
+            message_mode: messageMode,
+            room_owner_meta: ownerMetaJson,
+          })
+          .returning();
 
-      const newRoomId = stringGen(10);
-      const { db } = getDb();
-      const [created] = await db
-        .insert(rooms)
-        .values({
+        if (!created) {
+          emitNotice(socket, "فشل إنشاء الغرفة في قاعدة البيانات");
+          return;
+        }
+
+        const record: GatewayRoomRecord = {
           id: newRoomId,
+          idroom: created.idroom,
           topic,
           about,
+          pic,
           welcome,
-          user: sanitizeHtmlText(session.topic).slice(0, 250),
+          owner: roomOwnerId,
           pass,
+          user: sanitizeHtmlText(session.topic),
           needpass,
           broadcast,
           deleted: isTemporary,
-          owner: roomOwnerId,
-          pic,
-          rmli,
-          max: safeMax,
           color,
+          max: safeMax,
+          rmli,
           mic: stageCount,
           stage_count: stageCount,
-          stage_state: JSON.stringify(normalizedLocks),
+          stage_state: normalizedLocks,
           message_mode: messageMode,
-          room_owner_meta: ownerMetaJson,
-        })
-        .returning();
+          room_owner_meta: ownerMeta,
+        };
 
-      if (!created) return;
+        ctx.catalogStore.upsertRoomLocal(record);
+        await ctx.micStageManager.applyLocks(newRoomId, normalizedLocks);
 
-      const record: GatewayRoomRecord = {
-        id: newRoomId,
-        idroom: created.idroom,
-        topic,
-        about,
-        pic,
-        welcome,
-        owner: roomOwnerId,
-        pass,
-        user: sanitizeHtmlText(session.topic),
-        needpass,
-        broadcast,
-        deleted: isTemporary,
-        color,
-        max: safeMax,
-        rmli,
-        mic: stageCount,
-        stage_count: stageCount,
-        stage_state: normalizedLocks,
-        message_mode: messageMode,
-        room_owner_meta: ownerMeta,
-      };
+        await ctx.securityGuard.recordModerationStat({
+          state: isVoiceRoom ? "انشاء بث صوتي" : "انشاء غرفه",
+          topic: session.topic,
+          targetTopic: session.username,
+          room: topic,
+          ip: session.ip,
+        });
 
-      ctx.catalogStore.upsertRoomLocal(record);
-      await ctx.micStageManager.applyLocks(newRoomId, normalizedLocks);
+        const pub = sanitizePublicRoom(record, 0);
+        ctx.io.emit("msg", {
+          cmd: "r+",
+          data: {
+            ...pub,
+            delete: pub.deleted,
+            micLocks: normalizedLocks,
+            live_config: ownerMeta.live_config,
+            is_live_audio: isVoiceRoom,
+            join_mode: ownerMeta.live_config?.join_mode || "free",
+          },
+        });
 
-      await ctx.securityGuard.recordModerationStat({
-        state: isVoiceRoom ? "انشاء بث صوتي" : "انشاء غرفه",
-        topic: session.topic,
-        targetTopic: session.username,
-        room: topic,
-        ip: session.ip,
-      });
+        if (isVoiceRoom) {
+          await performRoomJoin(ctx, socket, session, newRoomId, pass);
+          await ctx.micStageManager.handleTakeSlot(socket, newRoomId, 1);
+        }
 
-      const pub = sanitizePublicRoom(record, 0);
-      ctx.io.emit("msg", {
-        cmd: "r+",
-        data: {
-          ...pub,
-          delete: pub.deleted,
-          micLocks: normalizedLocks,
-          live_config: ownerMeta.live_config,
-          is_live_audio: isVoiceRoom,
-          join_mode: ownerMeta.live_config?.join_mode || "free",
-        },
-      });
-
-      if (isVoiceRoom) {
-        await performRoomJoin(ctx, socket, session, newRoomId, pass);
-        await ctx.micStageManager.handleTakeSlot(socket, newRoomId, 1);
+        socket.emit("msg", {
+          cmd: "voice_room_created",
+          data: {
+            id: newRoomId,
+            topic,
+            is_live_audio: isVoiceRoom,
+          },
+        });
+        emitNotice(socket, isVoiceRoom ? "تم إنشاء القناة الصوتية المباشرة بنجاح 🎙️" : "تم إنشاء الغرفة بنجاح ✨");
+      } catch (err) {
+        console.error("[roomHandlers] handleCreateRoom error:", err);
+        emitNotice(socket, "حدث خطأ أثناء إنشاء الغرفة، يرجى المحاولة لاحقاً");
       }
-
-      socket.emit("msg", {
-        cmd: "voice_room_created",
-        data: {
-          id: newRoomId,
-          topic,
-          is_live_audio: isVoiceRoom,
-        },
-      });
     },
 
     async handleEditRoom(socket: Socket, rawData: unknown): Promise<void> {

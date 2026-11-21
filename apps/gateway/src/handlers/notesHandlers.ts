@@ -147,105 +147,110 @@ export function createNotesHandlers(ctx: GatewayContext) {
     },
 
     async handlePublishNote(socket: Socket, rawData: unknown): Promise<void> {
-      const session = ctx.presenceDirectory.getLocalSession(socket.id);
-      if (!session || !session.uid) {
-        emitNotice(socket, "يرجى تسجيل الدخول لنشر ملاحظة");
-        return;
-      }
-      if (session.ismuted || session.muted) {
-        emitNotice(socket, "أنت مكتوم حالياً ولا يمكنك نشر ملاحظات");
-        return;
-      }
-
-      if (!rawData || typeof rawData !== "object") {
-        emitNotice(socket, "بيانات الملاحظة غير صالحة");
-        return;
-      }
-
-      const d = rawData as Record<string, unknown>;
-      const rawType = String(d.type || "text").trim().toLowerCase();
-      const noteType: "text" | "audio" = rawType === "audio" ? "audio" : "text";
-
-      const rawText = sanitizeHtmlText(String(d.text || d.caption || "").trim()).slice(0, 500);
-      const rawCaption = sanitizeHtmlText(String(d.caption || d.text || d.tag || "").trim()).slice(0, 100);
-      const rawTag = sanitizeHtmlText(String(d.tag || (noteType === "audio" ? "موسيقى" : "")).trim()).slice(0, 40);
-      const rawAudioUrl = sanitizeHtmlText(String(d.audioUrl || d.audio_url || d.src || d.link || "").trim()).slice(0, 500);
-      const duration = Math.max(1, Math.min(300, Number(d.duration || d.length || 15) || 15));
-
-      if (noteType === "text") {
-        if (!rawText) {
-          emitNotice(socket, "يرجى كتابة نص الملاحظة");
+      try {
+        const session = ctx.presenceDirectory.getLocalSession(socket.id);
+        if (!session || !session.uid) {
+          emitNotice(socket, "يرجى تسجيل الدخول لنشر ملاحظة");
           return;
         }
-        if (/https?:\/\/[^\s]+/i.test(rawText)) {
-          emitNotice(socket, "لا يُسمح بإدراج روابط في الملاحظة");
+        if (session.ismuted || session.muted) {
+          emitNotice(socket, "أنت مكتوم حالياً ولا يمكنك نشر ملاحظات");
           return;
         }
-        if (ctx.catalogStore.scanProhibitedWords(rawText)) {
-          emitNotice(socket, "تحتوي الملاحظة على كلمات غير مسموح بها");
+
+        if (!rawData || typeof rawData !== "object") {
+          emitNotice(socket, "بيانات الملاحظة غير صالحة");
           return;
         }
-      } else {
-        if (
-          !rawAudioUrl ||
-          (!rawAudioUrl.startsWith("/") &&
-            !rawAudioUrl.startsWith("https://") &&
-            !rawAudioUrl.startsWith("http://") &&
-            !rawAudioUrl.startsWith("data:audio"))
-        ) {
-          emitNotice(socket, "يرجى تسجيل صوت صالح أو اختيار ملف صوتي");
+
+        const d = rawData as Record<string, unknown>;
+        const rawType = String(d.type || "text").trim().toLowerCase();
+        const noteType: "text" | "audio" = rawType === "audio" ? "audio" : "text";
+
+        const rawText = sanitizeHtmlText(String(d.text || d.caption || "").trim()).slice(0, 500);
+        const rawCaption = sanitizeHtmlText(String(d.caption || d.text || d.tag || "").trim()).slice(0, 100);
+        const rawTag = sanitizeHtmlText(String(d.tag || (noteType === "audio" ? "موسيقى" : "")).trim()).slice(0, 40);
+        const rawAudioUrl = sanitizeHtmlText(String(d.audioUrl || d.audio_url || d.src || d.link || "").trim()).slice(0, 500);
+        const duration = Math.max(1, Math.min(300, Number(d.duration || d.length || 15) || 15));
+
+        if (noteType === "text") {
+          if (!rawText) {
+            emitNotice(socket, "يرجى كتابة نص الملاحظة");
+            return;
+          }
+          if (/https?:\/\/[^\s]+/i.test(rawText)) {
+            emitNotice(socket, "لا يُسمح بإدراج روابط في الملاحظة");
+            return;
+          }
+          if (ctx.catalogStore.scanProhibitedWords(rawText)) {
+            emitNotice(socket, "تحتوي الملاحظة على كلمات غير مسموح بها");
+            return;
+          }
+        } else {
+          if (
+            !rawAudioUrl ||
+            (!rawAudioUrl.startsWith("/") &&
+              !rawAudioUrl.startsWith("https://") &&
+              !rawAudioUrl.startsWith("http://") &&
+              !rawAudioUrl.startsWith("data:audio"))
+          ) {
+            emitNotice(socket, "يرجى تسجيل صوت صالح أو اختيار ملف صوتي");
+            return;
+          }
+        }
+
+        const { db } = getDb();
+        const cutoff = Date.now() - NOTE_TTL_MS;
+
+        // Prevent sending a note if member already has an active note (< 24 hours)
+        const existingActive = await db
+          .select({ nid: user_notes.nid })
+          .from(user_notes)
+          .where(and(eq(user_notes.uid, session.uid), gte(user_notes.created_at, cutoff)))
+          .limit(1);
+
+        if (existingActive.length > 0) {
+          emitNotice(
+            socket,
+            "لديك ملاحظة نشطة بالفعل لم تنتهِ بعد. يمكنك نشر ملاحظة جديدة بعد مرور 24 ساعة أو حذف الملاحظة السابقة أولاً."
+          );
           return;
         }
+
+        const nid = `note_${stringGen(12)}`;
+        const now = Date.now();
+
+        await db.insert(user_notes).values({
+          nid,
+          uid: session.uid,
+          author_topic: session.topic || "عضو",
+          author_pic: session.pic || "",
+          author_ucol: session.ucol || "",
+          author_verified: Boolean(session.documents || session.documentationc),
+          type: noteType,
+          text: noteType === "text" ? rawText : "",
+          caption: rawCaption || rawText || rawTag,
+          audio_url: noteType === "audio" ? rawAudioUrl : "",
+          duration: noteType === "audio" ? duration : 0,
+          tag: rawTag,
+          likes_count: 0,
+          comments_count: 0,
+          created_at: now,
+        });
+
+        // Broadcast fresh notes to all connected clients
+        const [callerNotes, publicNotes] = await Promise.all([
+          loadInitialNotes(session.uid),
+          loadInitialNotes(),
+        ]);
+
+        socket.emit("msg", { cmd: "notes_list", data: callerNotes });
+        socket.broadcast.emit("msg", { cmd: "notes_list", data: publicNotes });
+        emitNotice(socket, noteType === "audio" ? "تم نشر الملاحظة الصوتية 🎵" : "تم نشر ملاحظتك بنجاح ✨");
+      } catch (err) {
+        console.error("[notesHandlers] handlePublishNote error:", err);
+        emitNotice(socket, "حدث خطأ أثناء نشر الملاحظة، يرجى المحاولة لاحقاً");
       }
-
-      const { db } = getDb();
-      const cutoff = Date.now() - NOTE_TTL_MS;
-
-      // Prevent sending a note if member already has an active note (< 24 hours)
-      const existingActive = await db
-        .select({ nid: user_notes.nid })
-        .from(user_notes)
-        .where(and(eq(user_notes.uid, session.uid), gte(user_notes.created_at, cutoff)))
-        .limit(1);
-
-      if (existingActive.length > 0) {
-        emitNotice(
-          socket,
-          "لديك ملاحظة نشطة بالفعل لم تنتهِ بعد. يمكنك نشر ملاحظة جديدة بعد مرور 24 ساعة أو حذف الملاحظة السابقة أولاً."
-        );
-        return;
-      }
-
-      const nid = `note_${stringGen(12)}`;
-      const now = Date.now();
-
-      await db.insert(user_notes).values({
-        nid,
-        uid: session.uid,
-        author_topic: session.topic || "عضو",
-        author_pic: session.pic || "",
-        author_ucol: session.ucol || "",
-        author_verified: Boolean(session.documents || session.documentationc),
-        type: noteType,
-        text: noteType === "text" ? rawText : "",
-        caption: rawCaption || rawText || rawTag,
-        audio_url: noteType === "audio" ? rawAudioUrl : "",
-        duration: noteType === "audio" ? duration : 0,
-        tag: rawTag,
-        likes_count: 0,
-        comments_count: 0,
-        created_at: now,
-      });
-
-      // Broadcast fresh notes to all connected clients
-      const [callerNotes, publicNotes] = await Promise.all([
-        loadInitialNotes(session.uid),
-        loadInitialNotes(),
-      ]);
-
-      socket.emit("msg", { cmd: "notes_list", data: callerNotes });
-      socket.broadcast.emit("msg", { cmd: "notes_list", data: publicNotes });
-      emitNotice(socket, noteType === "audio" ? "تم نشر الملاحظة الصوتية 🎵" : "تم نشر ملاحظتك بنجاح ✨");
     },
 
     async handleToggleNoteLike(socket: Socket, rawData: unknown): Promise<void> {

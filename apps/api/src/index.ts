@@ -6,7 +6,7 @@ import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import { closeDb, closeRedis, ensureGiftSystemTablesExist, ensureFeedTablesExist } from "@newchat/db";
+import { closeDb, closeRedis, ensureAllDatabaseTablesExist } from "@newchat/db";
 import { startGateway } from "@newchat/gateway";
 import { apiConfig } from "./config.js";
 import { closeQueues } from "./lib/queues.js";
@@ -24,8 +24,7 @@ const DDOS_BYPASS_PATHS = new Set(["/health", "/ping", "/healthz", "/readyz"]);
 
 async function start() {
   fs.mkdirSync(apiConfig.uploadDir, { recursive: true });
-  await ensureGiftSystemTablesExist();
-  await ensureFeedTablesExist();
+  await ensureAllDatabaseTablesExist();
 
   const app = Fastify({
     logger: {

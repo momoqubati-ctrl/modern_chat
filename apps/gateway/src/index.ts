@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createAdapter } from "@socket.io/redis-adapter";
-import { closeDb, closeRedis, ensureGiftSystemTablesExist, getDb, getRedis, sql } from "@newchat/db";
+import { closeDb, closeRedis, ensureAllDatabaseTablesExist, getDb, getRedis, sql } from "@newchat/db";
 import Redis from "ioredis";
 import { Server, type Socket } from "socket.io";
 import msgpackParser from "socket.io-msgpack-parser";
@@ -55,7 +55,7 @@ async function deleteKeysByPattern(redis: Redis, pattern: string): Promise<numbe
 }
 
 export async function startGateway(externalHttpServer?: http.Server): Promise<{ io: Server; shutdown: () => Promise<void> }> {
-  await ensureGiftSystemTablesExist();
+  await ensureAllDatabaseTablesExist();
   const isStandalone = !externalHttpServer;
   const httpServer = externalHttpServer || http.createServer((req, res) => {
     if (req.url === "/healthz" || req.url === "/health") {
@@ -249,7 +249,7 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
 
   async function emitPresenceSnapshot(socket: Socket): Promise<void> {
     const sess = presenceDirectory.getLocalSession(socket.id);
-    const list = await presenceDirectory.buildOnlineSnapshots(sess?.rank || sess?.power);
+    const list = await presenceDirectory.buildOnlineSnapshots(sess?.rank || sess?.power, socket.id);
     socket.emit("msg", { cmd: "presence_sync", data: list });
     socket.emit("msg", { cmd: "ulist", data: list });
   }

@@ -44,6 +44,7 @@ export interface FeedMediaItem {
 export interface FeedPostDto {
   id: number;
   postId: string;
+  feedItemId?: string;
   author: FeedAuthor;
   caption: string;
   mediaType: "image" | "carousel" | "video";
@@ -61,6 +62,7 @@ export interface FeedPostDto {
   isReposted?: boolean;
   isFollowing?: boolean;
   repostAuthor?: FeedAuthor | null;
+  repostedAt?: number;
 }
 
 export interface FeedCommentDto {
@@ -84,27 +86,77 @@ export async function getFeedPosts(params: {
   cursor?: number;
   limit?: number;
 }): Promise<{ posts: FeedPostDto[]; nextCursor?: number; hasMore: boolean }> {
-  const { db } = getDb();
+  const { pool, db } = getDb();
   const limit = Math.min(25, Math.max(1, params.limit || 10));
   const cursor = params.cursor && params.cursor > 0 ? params.cursor : undefined;
 
-  let query = db
-    .select()
-    .from(feed_posts)
-    .where(cursor ? sql`${feed_posts.created_at} < ${cursor}` : sql`1=1`)
-    .orderBy(desc(feed_posts.created_at))
-    .limit(limit + 1);
+  const timelineQuery = `
+    WITH timeline AS (
+      SELECT 
+        p.id,
+        p.post_id,
+        p.author_uid,
+        p.author_idreg,
+        p.caption,
+        p.media_type,
+        p.music_title,
+        p.likes_count,
+        p.comments_count,
+        p.reposts_count,
+        p.shares_count,
+        p.views_count,
+        p.gifts_count,
+        p.visibility,
+        p.created_at,
+        p.created_at AS timeline_time,
+        NULL::VARCHAR AS reposter_uid,
+        0::BIGINT AS repost_id
+      FROM feed_posts p
 
-  const postRows = await query;
-  const hasMore = postRows.length > limit;
-  const slicedPosts = hasMore ? postRows.slice(0, limit) : postRows;
+      UNION ALL
 
-  if (slicedPosts.length === 0) {
+      SELECT
+        p.id,
+        p.post_id,
+        p.author_uid,
+        p.author_idreg,
+        p.caption,
+        p.media_type,
+        p.music_title,
+        p.likes_count,
+        p.comments_count,
+        p.reposts_count,
+        p.shares_count,
+        p.views_count,
+        p.gifts_count,
+        p.visibility,
+        p.created_at,
+        r.created_at AS timeline_time,
+        r.user_uid AS reposter_uid,
+        r.id AS repost_id
+      FROM feed_post_reposts r
+      JOIN feed_posts p ON p.post_id = r.post_id
+    )
+    SELECT * FROM timeline
+    WHERE ($1::BIGINT IS NULL OR timeline_time < $1)
+    ORDER BY timeline_time DESC
+    LIMIT $2;
+  `;
+
+  const { rows: timelineRows } = await pool.query(timelineQuery, [cursor || null, limit + 1]);
+  const hasMore = timelineRows.length > limit;
+  const slicedRows = hasMore ? timelineRows.slice(0, limit) : timelineRows;
+
+  if (slicedRows.length === 0) {
     return { posts: [], hasMore: false };
   }
 
-  const postIds = slicedPosts.map((p) => p.post_id);
-  const authorUids = Array.from(new Set(slicedPosts.map((p) => p.author_uid)));
+  const postIds = Array.from(new Set(slicedRows.map((r: any) => String(r.post_id))));
+  const userUidsToFetch = new Set<string>();
+  for (const r of slicedRows) {
+    if (r.author_uid) userUidsToFetch.add(String(r.author_uid));
+    if (r.reposter_uid) userUidsToFetch.add(String(r.reposter_uid));
+  }
 
   // 1. Fetch authors
   const authorRows = await db
@@ -117,7 +169,7 @@ export async function getFeedPosts(params: {
       documentationc: users.documentationc,
     })
     .from(users)
-    .where(inArray(users.uid, authorUids));
+    .where(inArray(users.uid, Array.from(userUidsToFetch)));
 
   const authorMap = new Map<string, FeedAuthor>();
   for (const a of authorRows) {
@@ -164,6 +216,7 @@ export async function getFeedPosts(params: {
   const followingSet = new Set<string>();
 
   if (params.userUid) {
+    const authorUids = Array.from(userUidsToFetch);
     const [likes, bookmarks, reposts, followings] = await Promise.all([
       db
         .select({ postId: feed_post_likes.post_id })
@@ -192,15 +245,17 @@ export async function getFeedPosts(params: {
             inArray(feed_post_reposts.post_id, postIds),
           ),
         ),
-      db
-        .select({ followingId: followers.following_id })
-        .from(followers)
-        .where(
-          and(
-            eq(followers.follower_id, params.userUid),
-            inArray(followers.following_id, authorUids),
-          ),
-        ),
+      authorUids.length > 0
+        ? db
+            .select({ followingId: followers.following_id })
+            .from(followers)
+            .where(
+              and(
+                eq(followers.follower_id, params.userUid),
+                inArray(followers.following_id, authorUids),
+              ),
+            )
+        : Promise.resolve([]),
     ]);
 
     for (const l of likes) likedSet.add(l.postId);
@@ -209,39 +264,53 @@ export async function getFeedPosts(params: {
     for (const f of followings) followingSet.add(f.followingId);
   }
 
-  const posts: FeedPostDto[] = slicedPosts.map((p) => {
-    const author = authorMap.get(p.author_uid) || {
-      uid: p.author_uid,
-      idreg: p.author_idreg || 0,
+  const posts: FeedPostDto[] = slicedRows.map((r: any) => {
+    const author = authorMap.get(r.author_uid) || {
+      uid: r.author_uid,
+      idreg: Number(r.author_idreg || 0),
       topic: "مستخدم",
       username: "",
       pic: "pic.png",
       documentationc: 0,
     };
 
+    const repostAuthor = r.reposter_uid
+      ? authorMap.get(r.reposter_uid) || {
+          uid: r.reposter_uid,
+          idreg: 0,
+          topic: "مستخدم",
+          username: "",
+          pic: "pic.png",
+          documentationc: 0,
+        }
+      : null;
+
     return {
-      id: p.id,
-      postId: p.post_id,
+      id: Number(r.id),
+      postId: String(r.post_id),
+      feedItemId: r.reposter_uid ? `repost_${r.repost_id}_${r.post_id}` : String(r.post_id),
       author,
-      caption: p.caption || "",
-      mediaType: (p.media_type as "image" | "carousel" | "video") || "image",
-      mediaItems: mediaMap.get(p.post_id) || [],
-      musicTitle: p.music_title || "",
-      likesCount: p.likes_count,
-      commentsCount: p.comments_count,
-      repostsCount: p.reposts_count,
-      sharesCount: p.shares_count,
-      viewsCount: p.views_count,
-      giftsCount: p.gifts_count ?? 0,
-      createdAt: p.created_at,
-      isLiked: likedSet.has(p.post_id),
-      isBookmarked: bookmarkedSet.has(p.post_id),
-      isReposted: repostedSet.has(p.post_id),
-      isFollowing: followingSet.has(p.author_uid),
+      repostAuthor,
+      repostedAt: r.reposter_uid ? Number(r.timeline_time) : undefined,
+      caption: r.caption || "",
+      mediaType: (r.media_type as "image" | "carousel" | "video") || "image",
+      mediaItems: mediaMap.get(r.post_id) || [],
+      musicTitle: r.music_title || "",
+      likesCount: Number(r.likes_count || 0),
+      commentsCount: Number(r.comments_count || 0),
+      repostsCount: Number(r.reposts_count || 0),
+      sharesCount: Number(r.shares_count || 0),
+      viewsCount: Number(r.views_count || 0),
+      giftsCount: Number(r.gifts_count || 0),
+      createdAt: Number(r.created_at),
+      isLiked: likedSet.has(r.post_id),
+      isBookmarked: bookmarkedSet.has(r.post_id),
+      isReposted: repostedSet.has(r.post_id),
+      isFollowing: followingSet.has(r.author_uid),
     };
   });
 
-  const nextCursor = hasMore && posts.length > 0 ? posts[posts.length - 1]!.createdAt : undefined;
+  const nextCursor = hasMore && slicedRows.length > 0 ? Number(slicedRows[slicedRows.length - 1].timeline_time) : undefined;
   return { posts, nextCursor, hasMore };
 }
 
@@ -382,6 +451,8 @@ export async function deleteFeedPost(
   await db.transaction(async (tx) => {
     await tx.delete(feed_post_media).where(eq(feed_post_media.post_id, postId));
     await tx.delete(feed_post_likes).where(eq(feed_post_likes.post_id, postId));
+    await tx.delete(feed_post_reposts).where(eq(feed_post_reposts.post_id, postId));
+    await tx.delete(feed_post_gifts).where(eq(feed_post_gifts.post_id, postId));
     await tx.delete(feed_comments).where(eq(feed_comments.post_id, postId));
     await tx.delete(feed_bookmarks).where(eq(feed_bookmarks.post_id, postId));
     await tx.delete(feed_posts).where(eq(feed_posts.post_id, postId));

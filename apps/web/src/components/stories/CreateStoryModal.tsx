@@ -105,7 +105,7 @@ export function CreateStoryModal({ dark, open, onClose }: CreateStoryModalProps)
           textColor,
           length: 6,
         });
-        pushNotice("تم نشر القصة بنجاح");
+        pushNotice("جاري نشر القصة...");
         handleClose();
         return;
       }
@@ -122,7 +122,7 @@ export function CreateStoryModal({ dark, open, onClose }: CreateStoryModalProps)
         caption: trimmedCaption,
         length: finalType === "video" ? 15 : 6,
       });
-      pushNotice("تم نشر القصة بنجاح");
+      pushNotice("جاري نشر القصة...");
       handleClose();
     } catch {
       pushNotice("تعذر نشر القصة، حاول مجدداً", { force: 1 });

@@ -11,6 +11,7 @@ export interface FeedPostCardProps {
   onFollow: (authorUid: string) => void;
   onOpenComments: (postId: string) => void;
   onRepost?: (postId: string) => void;
+  onOpenShareModal?: (post: FeedPost) => void;
   onOpenGiftModal?: (post: FeedPost) => void;
   onViewGifts?: (postId: string) => void;
   onDeletePost?: (postId: string) => void;

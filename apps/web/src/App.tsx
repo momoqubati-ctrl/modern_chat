@@ -100,13 +100,22 @@ export function App() {
     if (!isAuthenticated) closeMediaPlayback();
   }, [isAuthenticated]);
 
-  // Report page visibility state to real-time socket presence
+  // Report page visibility state to real-time socket presence and handle lifecycle exit
   useEffect(() => {
     const onVisibility = () => {
       getSocketClient()?.reportVisibility(document.hidden);
     };
+    const onExit = () => {
+      getSocketClient()?.reportLifecycleExit("unloading");
+    };
     document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onExit);
+    window.addEventListener("beforeunload", onExit);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onExit);
+      window.removeEventListener("beforeunload", onExit);
+    };
   }, [getSocketClient]);
 
   // Apply dynamic site title & theme CSS custom properties from server bootstrap config

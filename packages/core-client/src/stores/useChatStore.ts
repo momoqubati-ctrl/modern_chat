@@ -179,7 +179,7 @@ export interface ChatState {
   requestPresenceSync: (includeAll?: boolean) => void;
   fetchRoomHistory: (roomId?: string) => void;
   loginGuest: (username: string, extras?: { pic?: string; roomid?: string }) => void;
-  loginMember: (username: string, password: string, extras?: { roomid?: string }) => void;
+  loginMember: (username: string, password: string, extras?: { roomid?: string; stealth?: boolean }) => void;
   registerMember: (username: string, password: string, extras?: { topic?: string }) => void;
   loginMemberHttp: (username: string, password: string) => Promise<void>;
   registerMemberHttp: (username: string, password: string, topic?: string) => Promise<void>;
@@ -554,18 +554,24 @@ function applyPresenceList(
   prevMe: OnlineUserSnapshot | null,
   mySocketId: string,
   powers: readonly PowerRole[] = [],
+  currentRoomId?: string | null,
 ): {
   onlineMap: Record<string, OnlineUserSnapshot>;
   onlineIds: string[];
   onlineCount: number;
   me: OnlineUserSnapshot | null;
 } {
-  const sorted = sortOnlineSnapshots(list, powers);
+  const sorted = sortOnlineSnapshots(list, powers, currentRoomId);
   const map: Record<string, OnlineUserSnapshot> = {};
   const ids: string[] = [];
+  const seenUids = new Set<string>();
   let meSnapshot = prevMe;
   for (const u of sorted) {
     if (!u?.id) continue;
+    if (u.uid) {
+      if (seenUids.has(u.uid)) continue;
+      seenUids.add(u.uid);
+    }
     map[u.id] = u;
     ids.push(u.id);
     if (mySocketId && u.id === mySocketId) {
@@ -791,7 +797,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const handlePresenceArray = (list: unknown) => {
       if (!Array.isArray(list)) return;
       const mySocketId = socketClient?.id ?? "";
-      set((s) => applyPresenceList(list as OnlineUserSnapshot[], s.me, mySocketId, s.powers));
+      set((s) => applyPresenceList(list as OnlineUserSnapshot[], s.me, mySocketId, s.powers, s.currentRoomId));
     };
     socketClient.onCmd("ulist", handlePresenceArray);
     socketClient.onCmd("presence_sync", handlePresenceArray);
@@ -799,8 +805,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("u+", (u: OnlineUserSnapshot) => {
       if (!u?.id) return;
       set((s) => {
-        const nextMap = { ...s.onlineMap, [u.id]: u };
-        const sortedList = sortOnlineSnapshots(Object.values(nextMap), s.powers);
+        const nextMap = { ...s.onlineMap };
+        if (u.uid) {
+          for (const [k, v] of Object.entries(nextMap)) {
+            if (k !== u.id && v.uid && v.uid === u.uid) {
+              delete nextMap[k];
+            }
+          }
+        }
+        nextMap[u.id] = u;
+        const sortedList = sortOnlineSnapshots(Object.values(nextMap), s.powers, s.currentRoomId);
         const nextIds = sortedList.map((x) => x.id);
         const isMe = u.id === socketClient?.id;
         return {
@@ -820,13 +834,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const nextUser = { ...prevUser, ...u };
         const nextMap = { ...s.onlineMap, [u.id]: nextUser };
         const isMe = u.id === socketClient?.id || (Boolean(s.me?.uid) && s.me?.uid === u.uid);
-        const rankOrPointsChanged = !prevUser ||
+        const shouldResort = !prevUser ||
           prevUser.power !== nextUser.power ||
           prevUser.rank !== nextUser.rank ||
           prevUser.evaluation !== nextUser.evaluation ||
-          prevUser.topic !== nextUser.topic;
-        const nextIds = rankOrPointsChanged
-          ? sortOnlineSnapshots(Object.values(nextMap), s.powers).map((x) => x.id)
+          prevUser.topic !== nextUser.topic ||
+          prevUser.stat !== nextUser.stat ||
+          prevUser.offline !== nextUser.offline ||
+          prevUser.roomid !== nextUser.roomid ||
+          prevUser.s !== nextUser.s;
+        const nextIds = shouldResort
+          ? sortOnlineSnapshots(Object.values(nextMap), s.powers, s.currentRoomId).map((x) => x.id)
           : s.onlineIds;
         return {
           onlineMap: nextMap,
@@ -860,10 +878,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const updated = prevUser ? { ...prevUser, roomid: room } : prevUser;
         const isMe = uid === socketClient?.id;
         const switchedMyRoom = Boolean(isMe && room && room !== s.currentRoomId);
+        const nextRoomId = isMe ? room : s.currentRoomId;
+        const nextMap = prevUser && updated ? { ...s.onlineMap, [uid]: updated } : s.onlineMap;
+        const nextIds = sortOnlineSnapshots(Object.values(nextMap), s.powers, nextRoomId).map((x) => x.id);
         return {
-          onlineMap: prevUser && updated ? { ...s.onlineMap, [uid]: updated } : s.onlineMap,
+          onlineMap: nextMap,
+          onlineIds: nextIds,
           me: isMe && updated ? updated : s.me,
-          currentRoomId: isMe ? room : s.currentRoomId,
+          currentRoomId: nextRoomId,
           ...(switchedMyRoom
             ? {
                 messages: [],
@@ -955,7 +977,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     socketClient.onCmd("powers", (powers: PowerRole[]) => {
-      if (Array.isArray(powers)) set({ powers });
+      if (!Array.isArray(powers)) return;
+      set((s) => {
+        const sorted = sortOnlineSnapshots(Object.values(s.onlineMap), powers);
+        return { powers, onlineIds: sorted.map((x) => x.id) };
+      });
     });
     socketClient.onCmd("power", (role: PowerRole) => {
       if (role && typeof role === "object") set({ myPowerRole: role });

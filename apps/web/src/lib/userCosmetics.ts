@@ -52,7 +52,7 @@ export function getUserIco(
   if (roleName && powers && powers.length > 0) {
     const role = powers.find((r) => r.name === roleName);
     const roleIco = String(role?.ico || "").trim();
-    if (roleIco && roleIco !== "undefined" && roleIco !== "none" && !roleIco.includes("dro3")) {
+    if (roleIco && roleIco !== "undefined" && roleIco !== "none" && roleIco.startsWith("sico/")) {
       return resolveAssetUrl(roleIco, "sico", "");
     }
   }

@@ -39,6 +39,7 @@ export function FeedPostCard({
   onFollow,
   onOpenComments,
   onRepost,
+  onOpenShareModal,
   onOpenGiftModal,
   onViewGifts,
   onDeletePost,
@@ -59,17 +60,15 @@ export function FeedPostCard({
     onLike(post.postId);
   };
 
-  const handleShareClick = async () => {
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({
-          title: `منشور ${post.author.topic}`,
-          text: post.caption,
-          url: window.location.href,
-        });
-      } catch {
-        // user cancelled share
-      }
+  const handleShareClick = () => {
+    if (onOpenShareModal) {
+      onOpenShareModal(post);
+    } else if (typeof navigator !== "undefined" && navigator.share) {
+      navigator.share({
+        title: `منشور ${post.author.topic}`,
+        text: post.caption,
+        url: window.location.href,
+      }).catch(() => {});
     }
   };
 
@@ -82,28 +81,39 @@ export function FeedPostCard({
           : "bg-white border-slate-200/80 text-slate-900"
       }`}
     >
-      {/* 0. Repost Attribution Banner */}
+      {/* 0. Repost Attribution Header: Shows the Sender (المرسل) with Repost Icon beside their name */}
       {post.repostAuthor && (
-        <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1.5 text-xs border-b border-slate-100 dark:border-slate-800/60 bg-emerald-500/5">
-          <div className="relative shrink-0">
+        <div className="flex items-center justify-between px-3.5 pt-2.5 pb-2 text-xs border-b border-slate-100 dark:border-slate-800/60 bg-emerald-500/10 dark:bg-emerald-500/5">
+          <div className="flex items-center gap-2 min-w-0">
             <img
               src={resolveAssetUrl(post.repostAuthor.pic)}
               alt={post.repostAuthor.topic}
-              className="w-5 h-5 rounded-full object-cover border border-emerald-500/40"
+              className="w-6 h-6 rounded-full object-cover ring-1 ring-emerald-500/40 shrink-0"
             />
-            <Repeat2 className="w-3 h-3 text-emerald-500 absolute -bottom-0.5 -end-0.5 bg-slate-900 rounded-full" />
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+              <span className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">
+                {post.repostAuthor.topic}
+              </span>
+              {Boolean(post.repostAuthor.documentationc) && <VerifiedBadge size="xs" />}
+              {/* Repost Badge BESIDE SENDER'S NAME */}
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                <Repeat2 className="w-3 h-3 stroke-[2.5]" />
+                <span>مشاركة</span>
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="font-bold text-emerald-500 text-xs">أعاد نشره {post.repostAuthor.topic}</span>
-            <span className="text-[11px] text-slate-400">· صاحب المنشور: <strong className="text-slate-200">{post.author.topic}</strong></span>
-          </div>
+          {post.repostedAt && (
+            <span className="text-[10px] text-slate-400 font-medium shrink-0">
+              {formatRelativeTimeArabic(post.repostedAt)}
+            </span>
+          )}
         </div>
       )}
 
       {/* 1. Header (Avatar, Author Info, Audio, Follow button, Options) */}
       <div className="flex items-center justify-between px-3.5 py-2.5">
         <div className="flex items-center gap-2.5 min-w-0">
-          {/* Avatar with Instagram-style gradient ring and Repost badge indicator */}
+          {/* Avatar with Instagram-style gradient ring (NO REPOST BADGE ON AUTHOR AVATAR) */}
           <div className="relative shrink-0">
             <div className="p-[2px] rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-fuchsia-600">
               <img
@@ -114,18 +124,15 @@ export function FeedPostCard({
                 className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-950"
               />
             </div>
-            {Boolean(post.isReposted || post.repostAuthor) && (
-              <span
-                className="absolute -bottom-1 -end-1 p-0.5 rounded-full bg-emerald-500 text-white shadow-xs"
-                title="تمت إعادة النشر"
-              >
-                <Repeat2 className="w-3 h-3" />
-              </span>
-            )}
           </div>
 
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {post.repostAuthor && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-400 font-medium">
+                  صاحب المنشور
+                </span>
+              )}
               <span className="text-sm font-bold truncate">{post.author.topic}</span>
               {Boolean(post.author.documentationc) && <VerifiedBadge size="xs" />}
               <span className="text-xs text-slate-400 font-normal">@{post.author.username}</span>
@@ -177,7 +184,7 @@ export function FeedPostCard({
                   type="button"
                   onClick={() => {
                     setShowMenu(false);
-                    void handleShareClick();
+                    handleShareClick();
                   }}
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
@@ -259,26 +266,27 @@ export function FeedPostCard({
             {post.commentsCount > 0 && <span>{post.commentsCount}</span>}
           </button>
 
-          {/* Repost Button */}
+          {/* Repost / Share Button */}
           <button
             type="button"
-            onClick={() => onRepost && onRepost(post.postId)}
+            onClick={handleShareClick}
             className={`flex items-center gap-1.5 text-xs font-bold transition-all active:scale-125 ${
               post.isReposted
                 ? "text-emerald-500"
                 : "text-slate-700 dark:text-slate-300 hover:text-emerald-500"
             }`}
-            title={post.isReposted ? "إلغاء إعادة النشر" : "إعادة النشر"}
+            title={post.isReposted ? "إلغاء مشاركة المنشور" : "مشاركة المنشور"}
           >
             <Repeat2 className={`w-6 h-6 ${post.isReposted ? "stroke-[2.5]" : ""}`} />
             {post.repostsCount > 0 && <span>{post.repostsCount}</span>}
           </button>
 
-          {/* Share Button */}
+          {/* Share Link Button */}
           <button
             type="button"
             onClick={handleShareClick}
             className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-fuchsia-500 transition-colors"
+            title="مشاركة المنشور"
           >
             <Send className="w-5 h-5 -rotate-45" />
             {post.sharesCount > 0 && <span>{post.sharesCount}</span>}

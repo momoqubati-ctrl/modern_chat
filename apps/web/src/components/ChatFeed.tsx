@@ -22,7 +22,7 @@ import {
 import { hasRoleFlag } from "../lib/permissions.js";
 import { AttachmentRenderer, detectAttachmentTypeFromPath, SafeRichText } from "../lib/richContent.js";
 import { playSoundCue } from "../lib/soundFx.js";
-import { getUserGiftIco, getUserIco } from "../lib/userCosmetics.js";
+import { getUserGiftIco, getUserIco, resolvePowerIco } from "../lib/userCosmetics.js";
 import { MemberAvatar } from "./MemberAvatar.js";
 import { VerifiedBadge, isUserVerified } from "./VerifiedBadge.js";
 
@@ -50,6 +50,8 @@ interface ChatMessageRowProps {
   isVerified: boolean;
   replyVerified: boolean;
   speaking: boolean;
+  senderRoleIco: string;
+  senderRoleTitle?: string;
   senderIco: string;
   senderGiftIco: string;
   likeAnimating: boolean;
@@ -79,6 +81,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isVerified,
   replyVerified,
   speaking,
+  senderRoleIco,
+  senderRoleTitle,
   senderIco,
   senderGiftIco,
   likeAnimating,
@@ -127,7 +131,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 className="w-[18px] h-[18px] min-w-[18px] max-h-[18px] object-contain shrink-0"
               />
             )}
-            {/* 2. Banner (u-ico: natural width, proper height, object-contain, matching chetos216-08-2024) */}
+            {/* 2. Role Icon (ايقونة الترقية / الرتب) */}
+            {senderRoleIco && (
+              <img
+                src={senderRoleIco}
+                alt=""
+                title={senderRoleTitle || "رتبة"}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+                className="w-[18px] h-[18px] min-w-[18px] max-h-[18px] object-contain shrink-0"
+              />
+            )}
+            {/* 3. Banner (u-ico: natural width, proper height, object-contain, matching chetos216-08-2024) */}
             {senderIco && (
               <img
                 src={senderIco}
@@ -286,7 +302,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 className="w-[18px] h-[18px] min-w-[18px] max-h-[18px] object-contain shrink-0"
               />
             )}
-            {/* 2. Banner (u-ico: natural width, proper height, object-contain, matching chetos216-08-2024) */}
+            {/* 2. Role Icon (ايقونة الترقية / الرتب) */}
+            {senderRoleIco && (
+              <img
+                src={senderRoleIco}
+                alt=""
+                title={senderRoleTitle || "رتبة"}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+                className="w-[18px] h-[18px] min-w-[18px] max-h-[18px] object-contain shrink-0"
+              />
+            )}
+            {/* 3. Banner (u-ico: natural width, proper height, object-contain, matching chetos216-08-2024) */}
             {senderIco && (
               <img
                 src={senderIco}
@@ -662,8 +690,12 @@ export function ChatFeed({
                 (m.id && onlineMap[m.id]) ||
                 (m.uid && Object.values(onlineMap).find((u) => u.uid === m.uid || u.id === m.uid)) ||
                 undefined;
-              const senderIco = getUserIco({ ico: m.ico, power: m.power }, powers);
-              const senderGiftIco = getUserGiftIco({ gift_ico: m.gift_ico, ico: m.ico });
+              const userRoleName = m.power || senderUser?.rank || senderUser?.power;
+              const userRole = userRoleName && powers ? powers.find((p) => p.name === userRoleName) : null;
+              const senderRoleIco = userRole?.ico ? resolvePowerIco(userRole.ico) : "";
+              const senderRoleTitle = userRole?.name || "";
+              const senderIco = getUserIco({ ico: m.ico || senderUser?.ico });
+              const senderGiftIco = getUserGiftIco({ gift_ico: m.gift_ico || senderUser?.gift_ico, ico: m.ico || senderUser?.ico });
               const isMine = Boolean(
                 (me?.uid && m.uid === me.uid) || (me?.id && (m.uid === me.id || m.id === me.id)),
               );
@@ -708,6 +740,8 @@ export function ChatFeed({
                     isVerified={isVerified}
                     replyVerified={replyVerified}
                     speaking={speaking}
+                    senderRoleIco={senderRoleIco}
+                    senderRoleTitle={senderRoleTitle}
                     senderIco={senderIco}
                     senderGiftIco={senderGiftIco}
                     likeAnimating={animatingMsgId !== null && animatingMsgId === messageId}

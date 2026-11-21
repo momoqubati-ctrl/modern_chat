@@ -104,6 +104,7 @@ export function RoomFormModal({ dark, editingRoom, onClose }: RoomFormModalProps
         pic,
         ownerBadgeId,
       });
+      pushNotice("جاري إنشاء الغرفة...");
     }
     onClose();
   };

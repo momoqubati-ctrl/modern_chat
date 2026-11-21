@@ -186,7 +186,7 @@ export function CreateNoteModal({ dark, isOpen, onClose, onSuccess }: CreateNote
         text: trimmed,
       });
 
-      pushNotice("تم نشر الملاحظة بنجاح ✨", { force: 1 });
+      pushNotice("جاري نشر الملاحظة...", { force: 1 });
       handleClose();
       onSuccess?.();
     } else {
@@ -231,7 +231,7 @@ export function CreateNoteModal({ dark, isOpen, onClose, onSuccess }: CreateNote
           duration: Math.max(3, recordingSeconds || 15),
         });
 
-        pushNotice("تم نشر الملاحظة الصوتية بنجاح 🎵", { force: 1 });
+        pushNotice("جاري نشر الملاحظة الصوتية...", { force: 1 });
         handleClose();
         onSuccess?.();
       } catch {

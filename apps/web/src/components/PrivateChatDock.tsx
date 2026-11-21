@@ -45,7 +45,7 @@ import {
 } from "../lib/mediaPermissions.js";
 import { detectAttachmentTypeFromPath, SafeRichText, AttachmentRenderer } from "../lib/richContent.js";
 import { playSoundCue } from "../lib/soundFx.js";
-import { getUserGiftIco, getUserIco } from "../lib/userCosmetics.js";
+import { getUserGiftIco, getUserIco, resolvePowerIco } from "../lib/userCosmetics.js";
 import { MemberAvatar } from "./MemberAvatar.js";
 import { VoiceNotePlayer } from "./media/VoiceNotePlayer.js";
 import { VoiceRecordingBar } from "./media/VoiceRecordingBar.js";
@@ -214,6 +214,9 @@ export function PrivateChatDock({
     return undefined;
   }, [selectedId, onlineMap, pmThreads]);
 
+  const partnerRoleName = activeUser?.rank || activeUser?.power;
+  const partnerRole = partnerRoleName && powers ? powers.find((p) => p.name === partnerRoleName) : null;
+  const partnerRoleIco = partnerRole?.ico ? resolvePowerIco(partnerRole.ico) : "";
   const partnerBanner = useMemo(() => getUserIco(activeUser, powers), [activeUser, powers]);
   const partnerGift = useMemo(() => getUserGiftIco(activeUser), [activeUser]);
   const partnerIsVerified = useMemo(
@@ -802,6 +805,17 @@ export function PrivateChatDock({
                         className="w-[16px] h-[16px] object-contain shrink-0"
                       />
                     )}
+                    {partnerRoleIco && (
+                      <img
+                        src={partnerRoleIco}
+                        alt=""
+                        title={partnerRole?.name || "رتبة"}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                        className="w-[16px] h-[16px] object-contain shrink-0"
+                      />
+                    )}
                     {partnerBanner && (
                       <img
                         src={partnerBanner}
@@ -1021,6 +1035,9 @@ export function PrivateChatDock({
                 messages.map((m, idx) => {
                   const isMine = Boolean(m.self || (me?.id && m.from === me.id));
                   const senderUser = (m.from && onlineMap[m.from]) || ((m as any).uid && onlineMap[(m as any).uid]) || activeUser;
+                  const senderRoleName = senderUser?.rank || senderUser?.power;
+                  const senderRole = senderRoleName && powers ? powers.find((p) => p.name === senderRoleName) : null;
+                  const msgRole = !isMine && senderRole?.ico ? resolvePowerIco(senderRole.ico) : "";
                   const msgBanner = !isMine ? getUserIco(senderUser, powers) : "";
                   const msgGift = !isMine ? getUserGiftIco(senderUser) : "";
                   const msgVerified = !isMine && isUserVerified(senderUser || m, onlineMap);
@@ -1051,6 +1068,17 @@ export function PrivateChatDock({
                                 <img
                                   src={msgGift}
                                   alt=""
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                  className="w-[16px] h-[16px] object-contain shrink-0"
+                                />
+                              )}
+                              {msgRole && (
+                                <img
+                                  src={msgRole}
+                                  alt=""
+                                  title={senderRole?.name || "رتبة"}
                                   onError={(e) => {
                                     e.currentTarget.style.display = "none";
                                   }}

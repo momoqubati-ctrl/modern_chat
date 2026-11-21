@@ -67,7 +67,7 @@ export function sanitizePublicPresenceRecord(
     nopmvideocall: bool(record.nopmvideocall),
     meiut: bool(record.ismuted || record.muted),
     muted: bool(record.muted || record.ismuted),
-    s: (record.s ?? null) as OnlineUserSnapshot["s"],
+    s: (record.s != null ? record.s : record.stealth ? 1 : null) as OnlineUserSnapshot["s"],
     meta_ts: num(record.meta_ts) || Date.now(),
   };
 }
