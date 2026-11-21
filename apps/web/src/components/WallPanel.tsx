@@ -334,7 +334,7 @@ export function WallPanel({ dark }: WallPanelProps) {
         <div className="flex gap-2">
           <input
             ref={postInputRef}
-            type="text"
+            type="search"
             name="wall_post_input"
             id="wall_post_input"
             autoComplete="off"
@@ -893,7 +893,7 @@ export function WallPanel({ dark }: WallPanelProps) {
                         <Smile className="w-4 h-4" />
                       </button>
                       <input
-                        type="text"
+                        type="search"
                         name="wall_comment_input"
                         autoComplete="off"
                         autoCorrect="off"

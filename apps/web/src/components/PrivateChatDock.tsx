@@ -1302,7 +1302,7 @@ export function PrivateChatDock({
               {/* Text Input */}
               <input
                 ref={inputRef}
-                type="text"
+                type="search"
                 name="private_msg_input"
                 id="private_msg_input"
                 autoComplete="off"
@@ -1603,7 +1603,7 @@ export function PrivateChatDock({
                   رسالة مرافقة (اختياري):
                 </label>
                 <input
-                  type="text"
+                  type="search"
                   name="pm_media_caption"
                   id="pm_media_caption"
                   autoComplete="off"

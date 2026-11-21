@@ -630,7 +630,7 @@ export function ChatComposer({
         {/* Message Input */}
         <input
           ref={inputRef}
-          type="text"
+          type="search"
           name="chat_room_msg"
           id="chat_room_msg"
           autoComplete="off"
@@ -1026,7 +1026,7 @@ export function ChatComposer({
                   رسالة أو تعليق مع المرفق (اختياري):
                 </label>
                 <input
-                  type="text"
+                  type="search"
                   name="media_caption_text"
                   id="media_caption_text"
                   autoComplete="off"
