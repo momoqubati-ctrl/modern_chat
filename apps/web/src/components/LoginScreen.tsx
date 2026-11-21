@@ -27,6 +27,7 @@ import type { OnlineUserSnapshot } from "@newchat/shared";
 import {
   adjustColorForTheme,
   getCountryNameArabic,
+  getUserNameStyle,
   normalizeHexColor,
   resolveAssetUrl,
   resolveCountryFlagUrl,
@@ -841,16 +842,7 @@ export function LoginScreen({ dark, onToggleTheme, onNavigate }: LoginScreenProp
                           <span
                             dir="auto"
                             className="text-xs font-extrabold truncate"
-                            style={{
-                              color: adjustColorForTheme(u.ucol, dark, {
-                                fallbackDark: "#38bdf8",
-                                fallbackLight: "#0369a1",
-                              }),
-                              backgroundColor:
-                                u.bg && u.bg.toLowerCase() !== "#ffffff" && u.bg.toLowerCase() !== "none"
-                                    ? u.bg
-                                    : undefined,
-                            }}
+                            style={getUserNameStyle(u, dark)}
                           >
                             {u.topic}
                           </span>

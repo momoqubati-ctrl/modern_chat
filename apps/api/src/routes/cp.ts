@@ -556,36 +556,10 @@ async function handleCpCommand(
       }
     }
     case "master_wallet_adjust": {
-      if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };
-      try {
-        const result = await adjustSiteMasterWalletAtomic(
-          data,
-          params.amount,
-          params.direction,
-          params.note,
-        );
-        await savestate({
-          state: params.direction === "subtract" ? "خصم من الرصيد الرئيسي" : "إضافة إلى الرصيد الرئيسي",
-          topic: data.topic,
-          topic1: `${Number(params.amount || 0)} coin`,
-          room: "",
-          ip: actorIp,
-          time: Date.now(),
-        });
-        return {
-          err: false,
-          msg: params.direction === "subtract" ? "تم خصم الرصيد بنجاح" : "تمت إضافة الرصيد بنجاح",
-          data: result,
-        };
-      } catch (err) {
-        if (isEconomyError(err, "MASTER_WALLET_INSUFFICIENT")) {
-          return { err: true, msg: "رصيد المحفظة الرئيسية غير كاف" };
-        }
-        if (isEconomyError(err, "MASTER_AMOUNT_REQUIRED")) {
-          return { err: true, msg: "كمية الرصيد غير صالحة" };
-        }
-        return { err: true, msg: "تعذر تعديل الرصيد الرئيسي" };
-      }
+      return {
+        err: true,
+        msg: "تغذية محفظة الموقع الرئيسية محظورة من لوحة التحكم ومحصورة حصرياً في بوابة مالك الاستضافة.",
+      };
     }
     case "agent_wallet_create": {
       if (!isOwner) return { err: true, msg: "لا تملك صلاحية" };

@@ -3,6 +3,47 @@ import { ChevronRight, ChevronLeft, Volume2, VolumeX, Play } from "lucide-react"
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
 import type { FeedMediaItem } from "./feedTypes.js";
 
+// ---------------------------------------------------------------------------
+// Shared "feed has settled" gate
+// ---------------------------------------------------------------------------
+// Starting a decoder in the same frame that a post slides under the sticky
+// header is what makes the scroll hitch on phones. A single passive listener
+// tracks scrolling for the whole feed, and each video starts only after the
+// gesture has been still for a moment.
+let feedScrolling = false;
+let feedScrollTimer: number | null = null;
+const scrollIdleCallbacks = new Set<() => void>();
+
+function markFeedScrolling() {
+  feedScrolling = true;
+  if (feedScrollTimer !== null) window.clearTimeout(feedScrollTimer);
+  feedScrollTimer = window.setTimeout(() => {
+    feedScrollTimer = null;
+    feedScrolling = false;
+    const callbacks = [...scrollIdleCallbacks];
+    scrollIdleCallbacks.clear();
+    for (const cb of callbacks) cb();
+  }, 140);
+}
+
+function runWhenScrollIdle(cb: () => void): () => void {
+  if (!feedScrolling) {
+    cb();
+    return () => {};
+  }
+  scrollIdleCallbacks.add(cb);
+  return () => {
+    scrollIdleCallbacks.delete(cb);
+  };
+}
+
+let feedScrollTrackerAttached = false;
+function ensureFeedScrollTracker() {
+  if (feedScrollTrackerAttached || typeof window === "undefined") return;
+  feedScrollTrackerAttached = true;
+  window.addEventListener("scroll", markFeedScrolling, { capture: true, passive: true });
+}
+
 interface FeedMediaViewerProps {
   mediaItems: FeedMediaItem[];
   mediaType: "image" | "carousel" | "video";
@@ -13,6 +54,9 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
+  // The <video> element gets a src only when the post is near the viewport,
+  // so a long feed never opens a media session for every video at once.
+  const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -21,21 +65,38 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
 
   const isCarousel = mediaItems.length > 1;
   const currentItem = mediaItems[currentIndex] || mediaItems[0];
+  // A carousel can contain a video item even when the post type is "carousel".
+  const isCurrentVideo = currentItem?.mediaType === "video" || mediaType === "video";
 
   // Auto-play / pause video when in viewport
   useEffect(() => {
-    if (mediaType !== "video" || !containerRef.current) return;
+    if (!isCurrentVideo || !containerRef.current || !shouldLoadVideo) return;
+    ensureFeedScrollTracker();
+
+    let cancelled = false;
+    let cancelIdle = () => {};
+
+    const startPlayback = () => {
+      cancelIdle = runWhenScrollIdle(() => {
+        if (cancelled) return;
+        const video = videoRef.current;
+        if (!video) return;
+        video
+          .play()
+          .then(() => setIsPlaying(true))
+          .catch(() => setIsPlaying(false));
+      });
+    };
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!videoRef.current) return;
+        const video = videoRef.current;
+        if (!video) return;
         if (entry.isIntersecting) {
-          videoRef.current
-            .play()
-            .then(() => setIsPlaying(true))
-            .catch(() => setIsPlaying(false));
+          startPlayback();
         } else {
-          videoRef.current.pause();
+          cancelIdle();
+          video.pause();
           setIsPlaying(false);
         }
       },
@@ -43,8 +104,34 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
     );
 
     observer.observe(containerRef.current);
+    return () => {
+      cancelled = true;
+      cancelIdle();
+      observer.disconnect();
+    };
+  }, [isCurrentVideo, shouldLoadVideo, currentItem?.url]);
+
+  // Defer attaching the source until the card is close to the viewport.
+  useEffect(() => {
+    if (!isCurrentVideo) return;
+    const el = containerRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldLoadVideo(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setShouldLoadVideo(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "300px 0px" }
+    );
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [mediaType]);
+  }, [isCurrentVideo, currentItem?.url]);
 
   const handlePrev = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -103,12 +190,10 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
     return null;
   }
 
-  const isCurrentVideo = currentItem.mediaType === "video" || mediaType === "video";
-
   return (
     <div
       ref={containerRef}
-      className="relative w-full overflow-hidden select-none bg-black flex items-center justify-center max-h-[580px] min-h-[320px]"
+      className="relative w-full overflow-hidden select-none bg-black flex items-center justify-center aspect-[4/3.5] sm:aspect-[4/4.5] max-h-[42vh] sm:max-h-[460px]"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -121,17 +206,17 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
         >
           <video
             ref={videoRef}
-            src={resolveAssetUrl(currentItem.url)}
-            className="w-full max-h-[580px] object-contain"
+            src={shouldLoadVideo ? resolveAssetUrl(currentItem.url) : undefined}
+            className="h-full w-full object-contain"
             loop
             playsInline
             muted={isMuted}
-            preload="metadata"
+            preload="none"
           />
 
           {!isPlaying && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
-              <div className="w-14 h-14 rounded-full bg-black/60 text-white flex items-center justify-center backdrop-blur-sm shadow-lg">
+              <div className="w-14 h-14 rounded-full bg-black/60 text-white flex items-center justify-center shadow-lg">
                 <Play className="w-7 h-7 fill-white translate-x-0.5" />
               </div>
             </div>
@@ -141,7 +226,7 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
           <button
             type="button"
             onClick={toggleMute}
-            className="absolute bottom-3 end-3 p-2 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors backdrop-blur-md shadow-md z-10"
+            className="absolute bottom-3 end-3 p-2 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors shadow-md z-10"
             aria-label={isMuted ? "تشغيل الصوت" : "كتم الصوت"}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -151,8 +236,11 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
         <img
           src={resolveAssetUrl(currentItem.url)}
           alt="Post content"
-          className="w-full max-h-[580px] object-cover transition-opacity duration-300"
+          width={currentItem.width || undefined}
+          height={currentItem.height || undefined}
+          className="h-full w-full object-cover transition-opacity duration-300"
           loading="lazy"
+          decoding="async"
         />
       )}
 
@@ -163,7 +251,7 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
             <button
               type="button"
               onClick={handlePrev}
-              className="absolute start-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 backdrop-blur-sm transition-all z-10"
+              className="absolute start-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-all z-10"
               aria-label="السابق"
             >
               <ChevronRight className="w-5 h-5 rtl:rotate-0 ltr:rotate-180" />
@@ -174,7 +262,7 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
             <button
               type="button"
               onClick={handleNext}
-              className="absolute end-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 backdrop-blur-sm transition-all z-10"
+              className="absolute end-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 text-white hover:bg-black/70 transition-all z-10"
               aria-label="التالي"
             >
               <ChevronLeft className="w-5 h-5 rtl:rotate-0 ltr:rotate-180" />
@@ -182,7 +270,7 @@ export function FeedMediaViewer({ mediaItems, mediaType, dark }: FeedMediaViewer
           )}
 
           {/* Top-Right Index Badge */}
-          <div className="absolute top-3 end-3 px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-bold backdrop-blur-md z-10">
+          <div className="absolute top-3 end-3 px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-bold z-10">
             {currentIndex + 1}/{mediaItems.length}
           </div>
 

@@ -1194,8 +1194,11 @@ export async function adjustSiteMasterWalletAtomic(
   if (amount < 1) {
     throw new EconomyError("MASTER_AMOUNT_REQUIRED");
   }
-  const delta = direction === "subtract" ? -amount : amount;
-  const eventType = direction === "subtract" ? "manual_adjustment_subtract" : "manual_adjustment_add";
+  if (direction === "add") {
+    throw new EconomyError("MASTER_FUNDING_RESTRICTED_TO_HOSTING_OWNER");
+  }
+  const delta = -amount;
+  const eventType = "manual_adjustment_subtract";
   const txid = makeCoinTxId("master");
 
   await ensureSiteMasterWalletReady();

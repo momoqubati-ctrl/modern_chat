@@ -15,6 +15,7 @@ import type { OnlineUserSnapshot, RoomMessagePayload } from "@newchat/shared";
 import {
   adjustColorForTheme,
   formatTimeArabic,
+  getUserNameStyle,
   normalizeHexColor,
   resolveAssetUrl,
 } from "../lib/mediaUrl.js";
@@ -303,12 +304,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
               onClick={() => onSenderClick(m)}
               dir="auto"
               className="text-xs font-extrabold hover:underline truncate"
-              style={{
-                color: adjustColorForTheme(m.ucol, dark, {
-                  fallbackDark: "#38bdf8",
-                  fallbackLight: "#0369a1",
-                }),
-              }}
+              style={getUserNameStyle(m, dark)}
             >
               {m.topic}
             </button>
@@ -378,16 +374,17 @@ const ChatMessageRow = memo(function ChatMessageRow({
               <div
                 dir="auto"
                 className="text-sm leading-relaxed break-words font-normal"
-                style={{
-                  color: m.mcol && m.mcol !== "#000000"
+              >
+                <SafeRichText
+                  text={m.msg}
+                  dark={dark}
+                  color={m.mcol && m.mcol !== "#000000"
                     ? adjustColorForTheme(m.mcol, dark, {
                         fallbackDark: "#f1f5f9",
                         fallbackLight: "#0f172a",
                       })
-                    : undefined,
-                }}
-              >
-                <SafeRichText text={m.msg} dark={dark} />
+                    : undefined}
+                />
               </div>
             )}
 
@@ -665,13 +662,8 @@ export function ChatFeed({
                 (m.id && onlineMap[m.id]) ||
                 (m.uid && Object.values(onlineMap).find((u) => u.uid === m.uid || u.id === m.uid)) ||
                 undefined;
-              const senderIco =
-                (m.ico && !m.ico.includes("dro3") ? resolveAssetUrl(m.ico, "sico", "") : "") ||
-                (senderUser ? getUserIco(senderUser, powers) : "");
-              const senderGiftIco =
-                (m.gift_ico ? getUserGiftIco({ gift_ico: m.gift_ico }) : "") ||
-                (m.ico && m.ico.includes("dro3") ? getUserGiftIco({ gift_ico: m.ico }) : "") ||
-                (senderUser ? getUserGiftIco(senderUser) : "");
+              const senderIco = getUserIco({ ico: m.ico, power: m.power }, powers);
+              const senderGiftIco = getUserGiftIco({ gift_ico: m.gift_ico, ico: m.ico });
               const isMine = Boolean(
                 (me?.uid && m.uid === me.uid) || (me?.id && (m.uid === me.id || m.id === me.id)),
               );

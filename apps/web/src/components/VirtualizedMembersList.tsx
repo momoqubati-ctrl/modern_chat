@@ -4,7 +4,7 @@ import { Gift, MessageCircle, Search, UserCheck } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
 import type { OnlineUserSnapshot } from "@newchat/shared";
 import { MemberAvatar, MemberBadgesInline, MemberPrefixIcons, getStatusLabel } from "./MemberAvatar.js";
-import { adjustColorForTheme, getCountryNameArabic, resolveCountryFlagUrl } from "../lib/mediaUrl.js";
+import { getUserNameStyle, adjustColorForTheme, getCountryNameArabic, resolveCountryFlagUrl } from "../lib/mediaUrl.js";
 import { getUserCover, getUserTheme } from "../lib/userCosmetics.js";
 import { SafeRichText } from "../lib/richContent.js";
 
@@ -178,16 +178,7 @@ export function VirtualizedMembersList({
                           <span
                             dir="auto"
                             className="text-xs font-extrabold truncate"
-                            style={{
-                              color: adjustColorForTheme(u.ucol, dark, {
-                                fallbackDark: "#38bdf8",
-                                fallbackLight: "#0369a1",
-                              }),
-                              backgroundColor:
-                                u.bg && u.bg.toLowerCase() !== "#ffffff" && u.bg.toLowerCase() !== "none"
-                                  ? u.bg
-                                  : undefined,
-                            }}
+                            style={getUserNameStyle(u, dark)}
                           >
                             {u.topic}
                           </span>
@@ -224,7 +215,20 @@ export function VirtualizedMembersList({
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 min-w-0">
                           <span dir="auto" className="truncate">
-                            {u.msg ? <SafeRichText text={u.msg} dark={dark} /> : getStatusLabel(u.stat, u.offline)}
+                            {u.msg ? (
+                              <SafeRichText
+                                text={u.msg}
+                                dark={dark}
+                                color={u.mcol && u.mcol !== "#000000"
+                                  ? adjustColorForTheme(u.mcol, dark, {
+                                      fallbackDark: "#f1f5f9",
+                                      fallbackLight: "#0f172a",
+                                    })
+                                  : undefined}
+                              />
+                            ) : (
+                              getStatusLabel(u.stat, u.offline)
+                            )}
                           </span>
                           {isBot && (
                             <span className="px-1.5 py-0 rounded bg-amber-500/15 text-amber-400 text-[10px] font-bold shrink-0">

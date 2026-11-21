@@ -10,6 +10,9 @@ import {
   getDb,
   inArray,
   internal_mail,
+  bars,
+  note_comments,
+  note_likes,
   or,
   profile_visits,
   sql,
@@ -18,11 +21,14 @@ import {
   story_comment_likes,
   story_comments,
   story_likes,
+  top10wall,
+  user_notes,
   users,
 } from "@newchat/db";
 import {
   NO_NAMES,
   canActOnRank,
+  canManageSiteBadges,
   getPowerDefinitionByName,
   sanitizeHtmlText,
   stringGen,
@@ -33,7 +39,7 @@ import type { Socket } from "socket.io";
 import { gatewayConfig } from "../config.js";
 import { hashPasswordSync, verifyPasswordAsync } from "../lib/password.js";
 import { emitNotice, resolveContainedPath, safeJsonParse } from "../lib/socketUtils.js";
-import type { GatewayContext } from "../types/gateway.js";
+import type { GatewayContext, GatewaySession } from "../types/gateway.js";
 import { loadInitialStories } from "./authHandlers.js";
 
 const IMAGE_MIME_TO_EXT: Record<string, string> = {
@@ -45,6 +51,73 @@ const IMAGE_MIME_TO_EXT: Record<string, string> = {
 };
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+async function syncMemberIdentity(
+  ctx: GatewayContext,
+  uid: string,
+  fields: Partial<GatewaySession> & { verified?: boolean },
+): Promise<void> {
+  if (!uid) return;
+  const { db } = getDb();
+  const [member] = await db
+    .select({
+      topic: users.topic,
+      username: users.username,
+      pic: users.pic,
+      ucol: users.ucol,
+      documentationc: users.documentationc,
+    })
+    .from(users)
+    .where(eq(users.uid, uid))
+    .limit(1);
+  if (!member) return;
+
+  const topic = fields.topic ?? member.topic ?? "عضو";
+  const pic = fields.pic ?? member.pic ?? "pic.png";
+  const ucol = fields.ucol ?? member.ucol ?? "#000000";
+  const verified = fields.verified ?? Boolean(member.documentationc);
+
+  await Promise.all([
+    db.update(story_comments).set({
+      author_topic: topic,
+      author_pic: pic,
+      author_ucol: ucol,
+      author_verified: verified,
+    }).where(eq(story_comments.author_uid, uid)),
+    db.update(note_comments).set({
+      author_topic: topic,
+      author_pic: pic,
+      author_ucol: ucol,
+      author_verified: verified,
+    }).where(eq(note_comments.author_uid, uid)),
+    db.update(user_notes).set({
+      author_topic: topic,
+      author_pic: pic,
+      author_ucol: ucol,
+      author_verified: verified,
+    }).where(eq(user_notes.uid, uid)),
+    db.update(story_likes).set({ topic, photo: pic }).where(eq(story_likes.user_uid, uid)),
+    db.update(note_likes).set({ topic, photo: pic }).where(eq(note_likes.user_uid, uid)),
+    db.update(storie).set({ name: topic, photo: pic }).where(eq(storie.sid, uid)),
+    db.update(storieview).set({ topic, photo: pic }).where(eq(storieview.sid, uid)),
+    db.update(profile_visits).set({ visitor_name: topic, visitor_pic: pic }).where(eq(profile_visits.visitor_id, uid)),
+    db.update(bars).set({ topic, pic, ucol }).where(eq(bars.uid, uid)),
+    db.update(top10wall).set({ topic, pic }).where(eq(top10wall.uid, uid)),
+    db.update(internal_mail).set({ from_topic: topic, from_pic: pic, from_username: member.username }).where(eq(internal_mail.from_uid, uid)),
+    db.update(internal_mail).set({ to_topic: topic, to_pic: pic, to_username: member.username }).where(eq(internal_mail.to_uid, uid)),
+  ]);
+
+  const socketIds = await ctx.presenceDirectory.getAllSocketIdsByUid(uid);
+  await Promise.all(socketIds.map((socketId) =>
+    ctx.presenceDirectory.patchSession(socketId, {
+      ...fields,
+      topic,
+      pic,
+      ucol,
+      documentationc: verified,
+    }),
+  ));
+}
 
 function cleanColor(value: unknown, fallback: string): string {
   const c = sanitizeHtmlText(String(value ?? "").trim());
@@ -82,9 +155,10 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
       if (target.islogin === "عضو" && target.uid) {
         const { db } = getDb();
         await db.update(users).set({ topic: newTopic }).where(eq(users.uid, target.uid));
+        await syncMemberIdentity(ctx, target.uid, { topic: newTopic });
+      } else {
+        await ctx.presenceDirectory.patchSession(targetId, { topic: newTopic });
       }
-
-      await ctx.presenceDirectory.patchSession(targetId, { topic: newTopic });
       await ctx.securityGuard.recordModerationStat({
         state: "تغير الاسم",
         topic: actor.topic,
@@ -169,16 +243,29 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
           .where(eq(users.uid, actor.uid));
       }
 
-      await ctx.presenceDirectory.patchSession(socket.id, {
-        topic: nextTopic,
-        msg: nextMsg,
-        bg: nextBg,
-        ucol: nextUcol,
-        mcol: nextMcol,
-        gcol: nextGcol,
-        yp: nextYp,
-        pic: nextPic,
-      });
+      if (actor.islogin === "عضو" && actor.uid) {
+        await syncMemberIdentity(ctx, actor.uid, {
+          topic: nextTopic,
+          pic: nextPic,
+          ucol: nextUcol,
+          msg: nextMsg,
+          bg: nextBg,
+          mcol: nextMcol,
+          gcol: nextGcol,
+          yp: nextYp,
+        });
+      } else {
+        await ctx.presenceDirectory.patchSession(socket.id, {
+          topic: nextTopic,
+          msg: nextMsg,
+          bg: nextBg,
+          ucol: nextUcol,
+          mcol: nextMcol,
+          gcol: nextGcol,
+          yp: nextYp,
+          pic: nextPic,
+        });
+      }
       emitNotice(socket, "تم حفظ الملف الشخصي بنجاح");
     },
 
@@ -230,10 +317,18 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
           .where(eq(users.uid, actor.uid));
       }
 
-      await ctx.presenceDirectory.patchSession(
-        socket.id,
-        cmd === "setpic2" ? { pich: publicPic } : { pic: publicPic },
-      );
+      if (actor.islogin === "عضو" && actor.uid) {
+        await syncMemberIdentity(
+          ctx,
+          actor.uid,
+          cmd === "setpic2" ? { pich: publicPic } : { pic: publicPic },
+        );
+      } else {
+        await ctx.presenceDirectory.patchSession(
+          socket.id,
+          cmd === "setpic2" ? { pich: publicPic } : { pic: publicPic },
+        );
+      }
 
       socket.emit("msg", { cmd: cmd === "setpic2" ? "savepic2" : "savepic", data: { pic: publicPic } });
       socket.emit("msg", { cmd: "savedone", data: { cmd, pic: publicPic } });
@@ -343,15 +438,20 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
       const badgeId = String(d.badgeId || d.site_badge_id || "").trim();
       const targetId = String(d.id || socket.id).trim();
 
-      if (targetId !== socket.id) {
-        const powerDef = ctx.catalogStore.getPowerRole(actor.rank || actor.power);
-        if (!powerDef || !Number(powerDef.edituser || 0)) return;
+      if (!canManageSiteBadges(ctx.catalogStore.getPowerRole(actor.rank || actor.power))) {
+        emitNotice(socket, "لا تملك صلاحية التحكم بشارات العضوية");
+        return;
       }
 
       const target = await ctx.presenceDirectory.getDistributedSession(targetId);
       if (!target || target.islogin !== "عضو" || !target.uid) return;
 
       const badge = badgeId ? ctx.catalogStore.getSiteBadgeById(badgeId) : null;
+      if (badgeId && !badge) {
+        emitNotice(socket, "شارة العضوية المحددة غير موجودة");
+        return;
+      }
+
       const { db } = getDb();
       await db
         .update(users)
@@ -364,6 +464,17 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
         site_badge_id: badge ? badge.id : "",
         site_badge: badge || "",
       });
+      socket.emit("msg", {
+        cmd: "savedone",
+        data: {
+          cmd: "setSiteBadge",
+          id: targetId,
+          uid: target.uid,
+          site_badge_id: badge ? badge.id : "",
+          site_badge: badge || "",
+        },
+      });
+      emitNotice(socket, badge ? "تم تحديث شارة العضوية" : "تمت إزالة شارة العضوية");
     },
 
     async handleCosmeticToggle(
@@ -488,17 +599,24 @@ export function createProfileSocialHandlers(ctx: GatewayContext) {
       const { db } = getDb();
       if (cmd.startsWith("bnr")) {
         await db.update(users).set({ ico: val }).where(eq(users.uid, targetSession.uid));
-        await ctx.presenceDirectory.patchSession(targetSession.id, { ico: val });
       } else if (cmd.startsWith("uthem")) {
         await db.update(users).set({ them: val }).where(eq(users.uid, targetSession.uid));
-        await ctx.presenceDirectory.patchSession(targetSession.id, { them: val });
       } else if (cmd.startsWith("udro3")) {
         await db.update(users).set({ gift_ico: val }).where(eq(users.uid, targetSession.uid));
-        await ctx.presenceDirectory.patchSession(targetSession.id, { gift_ico: val });
       } else {
         await db.update(users).set({ cover: val }).where(eq(users.uid, targetSession.uid));
-        await ctx.presenceDirectory.patchSession(targetSession.id, { cover: val });
       }
+      const cosmeticPatch: Partial<GatewaySession> = cmd.startsWith("bnr")
+        ? { ico: val }
+        : cmd.startsWith("uthem")
+          ? { them: val }
+          : cmd.startsWith("udro3")
+            ? { gift_ico: val }
+            : { cover: val };
+      const targetSocketIds = await ctx.presenceDirectory.getAllSocketIdsByUid(targetSession.uid);
+      await Promise.all(targetSocketIds.map((socketId) =>
+        ctx.presenceDirectory.patchSession(socketId, cosmeticPatch),
+      ));
 
       if (!isTargetSelf) {
         const itemLabel = cmd.startsWith("bnr")

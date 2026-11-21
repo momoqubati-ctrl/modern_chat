@@ -111,7 +111,7 @@ export function StoryViewerModal({
     setLoadError(false);
     setMediaLoaded(isText);
 
-    markStoryViewed(currentGroup.sid, safeSlideIdx, currentSlide.id);
+    markStoryViewed(currentGroup.sid, currentSlide.itemIndex ?? safeSlideIdx, currentSlide.id);
 
     const safety = setTimeout(() => setMediaLoaded(true), 3500);
     return () => clearTimeout(safety);
@@ -226,7 +226,7 @@ export function StoryViewerModal({
   };
 
   const handleOpenViewers = () => {
-    getStoryViewers(currentGroup.sid, currentSlide.id, safeSlideIdx);
+    getStoryViewers(currentGroup.sid, currentSlide.id, currentSlide.itemIndex ?? safeSlideIdx);
     fetchStoryLikers(currentGroup.sid, currentSlide.id);
     setViewersTab("viewers");
     setShowViewersModal(true);

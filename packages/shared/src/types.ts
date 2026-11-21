@@ -523,6 +523,7 @@ export interface StorySlideItem {
   textColor?: string;
   length?: number;
   time?: number;
+  itemIndex?: number;
   viewsCount?: number;
   likesCount?: number;
   commentsCount?: number;

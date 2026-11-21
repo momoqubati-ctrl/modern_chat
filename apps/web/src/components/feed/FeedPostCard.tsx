@@ -14,6 +14,7 @@ import {
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
 import { VerifiedBadge } from "../VerifiedBadge.js";
 import { FeedMediaViewer } from "./FeedMediaViewer.js";
+import { HashtagText } from "./HashtagText.js";
 import type { FeedPostCardProps } from "./feedTypes.js";
 
 function formatRelativeTimeArabic(timestamp: number): string {
@@ -37,7 +38,9 @@ export function FeedPostCard({
   onBookmark,
   onFollow,
   onOpenComments,
+  onRepost,
   onOpenGiftModal,
+  onViewGifts,
   onDeletePost,
   canDelete = false,
 }: FeedPostCardProps) {
@@ -73,22 +76,52 @@ export function FeedPostCard({
   return (
     <article
       dir="rtl"
-      className={`w-full max-w-xl mx-auto mb-4 border rounded-2xl overflow-hidden shadow-sm transition-colors ${
+      className={`feed-post-item w-full max-w-xl mx-auto mb-3.5 sm:mb-4 border rounded-2xl overflow-hidden shadow-sm transition-colors ${
         dark
           ? "bg-slate-950/70 border-slate-800/80 text-white"
           : "bg-white border-slate-200/80 text-slate-900"
       }`}
     >
-      {/* 1. Header (Avatar, Author Info, Audio, Follow button, Options) */}
-      <div className="flex items-center justify-between px-3.5 py-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {/* Avatar with Instagram-style gradient ring */}
-          <div className="p-[2px] rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-fuchsia-600 shrink-0">
+      {/* 0. Repost Attribution Banner */}
+      {post.repostAuthor && (
+        <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1.5 text-xs border-b border-slate-100 dark:border-slate-800/60 bg-emerald-500/5">
+          <div className="relative shrink-0">
             <img
-              src={resolveAssetUrl(post.author.pic)}
-              alt={post.author.topic}
-              className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-950"
+              src={resolveAssetUrl(post.repostAuthor.pic)}
+              alt={post.repostAuthor.topic}
+              className="w-5 h-5 rounded-full object-cover border border-emerald-500/40"
             />
+            <Repeat2 className="w-3 h-3 text-emerald-500 absolute -bottom-0.5 -end-0.5 bg-slate-900 rounded-full" />
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-bold text-emerald-500 text-xs">أعاد نشره {post.repostAuthor.topic}</span>
+            <span className="text-[11px] text-slate-400">· صاحب المنشور: <strong className="text-slate-200">{post.author.topic}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* 1. Header (Avatar, Author Info, Audio, Follow button, Options) */}
+      <div className="flex items-center justify-between px-3.5 py-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {/* Avatar with Instagram-style gradient ring and Repost badge indicator */}
+          <div className="relative shrink-0">
+            <div className="p-[2px] rounded-full bg-gradient-to-tr from-amber-500 via-rose-500 to-fuchsia-600">
+              <img
+                src={resolveAssetUrl(post.author.pic)}
+                alt={post.author.topic}
+                loading="lazy"
+                decoding="async"
+                className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-slate-950"
+              />
+            </div>
+            {Boolean(post.isReposted || post.repostAuthor) && (
+              <span
+                className="absolute -bottom-1 -end-1 p-0.5 rounded-full bg-emerald-500 text-white shadow-xs"
+                title="تمت إعادة النشر"
+              >
+                <Repeat2 className="w-3 h-3" />
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col min-w-0">
@@ -171,7 +204,24 @@ export function FeedPostCard({
         </div>
       </div>
 
-      {/* 2. Media Viewer (Single Image, Carousel, or Video) */}
+      {/* 2. Text / Caption at the BEGINNING with Pink Hashtags */}
+      {caption && (
+        <div className="px-3.5 pt-0.5 pb-2.5 text-xs leading-relaxed">
+          <span className="font-bold me-1.5">{post.author.topic}</span>
+          <HashtagText text={displayedCaption} className="whitespace-pre-wrap" />
+          {isCaptionLong && !isExpanded && (
+            <button
+              type="button"
+              onClick={() => setIsExpanded(true)}
+              className="ms-1.5 text-slate-400 hover:text-slate-200 font-bold"
+            >
+              المزيد
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 3. Media Viewer (Single Image, Carousel, or Video) */}
       {post.mediaItems.length > 0 && (
         <FeedMediaViewer
           mediaItems={post.mediaItems}
@@ -180,8 +230,8 @@ export function FeedPostCard({
         />
       )}
 
-      {/* 3. Action Bar (Like, Comment, Repost, Share, Gift, Bookmark) */}
-      <div className="flex items-center justify-between px-3.5 py-2.5">
+      {/* 4. Action Bar (Like, Comment, Repost, Share, Gift, Bookmark) */}
+      <div className="flex items-center justify-between px-3.5 py-2">
         <div className="flex items-center gap-4">
           {/* Like Heart Button */}
           <button
@@ -212,9 +262,15 @@ export function FeedPostCard({
           {/* Repost Button */}
           <button
             type="button"
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-emerald-500 transition-colors"
+            onClick={() => onRepost && onRepost(post.postId)}
+            className={`flex items-center gap-1.5 text-xs font-bold transition-all active:scale-125 ${
+              post.isReposted
+                ? "text-emerald-500"
+                : "text-slate-700 dark:text-slate-300 hover:text-emerald-500"
+            }`}
+            title={post.isReposted ? "إلغاء إعادة النشر" : "إعادة النشر"}
           >
-            <Repeat2 className="w-6 h-6" />
+            <Repeat2 className={`w-6 h-6 ${post.isReposted ? "stroke-[2.5]" : ""}`} />
             {post.repostsCount > 0 && <span>{post.repostsCount}</span>}
           </button>
 
@@ -230,18 +286,30 @@ export function FeedPostCard({
         </div>
 
         {/* Right Action Icons: Gift & Bookmark */}
-        <div className="flex items-center gap-3">
-          {/* Gift Button - Connected to Unified Economy Engine */}
-          {onOpenGiftModal && !isMyPost && (
+        <div className="flex items-center gap-2.5">
+          {/* Gift Button: Owner views gifts list; Others send gift */}
+          {isMyPost ? (
             <button
               type="button"
-              onClick={() => onOpenGiftModal(post)}
+              onClick={() => onViewGifts && onViewGifts(post.postId)}
               className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all active:scale-95 shadow-sm"
-              title="إرسال هدية للمنشور"
+              title="عرض سجل الداعمين والهدايا لهذا المنشور"
             >
               <Gift className="w-4 h-4" />
-              <span>هدية</span>
+              <span>{post.giftsCount > 0 ? `${post.giftsCount} هدية` : "الهدايا"}</span>
             </button>
+          ) : (
+            onOpenGiftModal && (
+              <button
+                type="button"
+                onClick={() => onOpenGiftModal(post)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all active:scale-95 shadow-sm"
+                title="إرسال هدية للمنشور"
+              >
+                <Gift className="w-4 h-4" />
+                <span>{post.giftsCount > 0 ? `${post.giftsCount} هدية` : "هدية"}</span>
+              </button>
+            )
           )}
 
           {/* Bookmark Ribbon Button */}
@@ -258,25 +326,8 @@ export function FeedPostCard({
         </div>
       </div>
 
-      {/* 4. Caption & Body */}
-      {caption && (
-        <div className="px-3.5 pb-2 text-xs leading-relaxed">
-          <span className="font-bold me-1.5">{post.author.topic}</span>
-          <span className="whitespace-pre-wrap">{displayedCaption}</span>
-          {isCaptionLong && !isExpanded && (
-            <button
-              type="button"
-              onClick={() => setIsExpanded(true)}
-              className="ms-1.5 text-slate-400 hover:text-slate-200 font-bold"
-            >
-              المزيد
-            </button>
-          )}
-        </div>
-      )}
-
       {/* 5. Quick Comments link & Relative Date */}
-      <div className="px-3.5 pb-3 pt-0.5 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+      <div className="px-3.5 pb-2.5 pt-0.5 flex items-center justify-between text-[11px] text-slate-400 font-medium">
         {post.commentsCount > 0 ? (
           <button
             type="button"

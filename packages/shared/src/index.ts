@@ -4,6 +4,7 @@ export * from "./gamesData.js";
 export * from "./ludoEngine.js";
 export * from "./presence.js";
 export * from "./rbac.js";
+export * from "./storyExpiry.js";
 export * from "./textFilter.js";
 export * from "./types.js";
 export * from "./validators.js";

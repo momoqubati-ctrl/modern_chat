@@ -27,8 +27,22 @@ import {
   X,
 } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
-import { canActOnRank, getPowerDefinitionByName, type OnlineUserSnapshot, type SiteBadge } from "@newchat/shared";
-import { adjustColorForTheme, formatTimeArabic, getCountryNameArabic, normalizeHexColor, resolveAssetUrl, resolveCountryFlagUrl } from "../lib/mediaUrl.js";
+import {
+  canActOnRank,
+  canManageSiteBadges,
+  getPowerDefinitionByName,
+  type OnlineUserSnapshot,
+  type SiteBadge,
+} from "@newchat/shared";
+import {
+  adjustColorForTheme,
+  formatTimeArabic,
+  getCountryNameArabic,
+  getUserNameStyle,
+  normalizeHexColor,
+  resolveAssetUrl,
+  resolveCountryFlagUrl,
+} from "../lib/mediaUrl.js";
 import { getBadgeStyle } from "../lib/badgeStyle.js";
 import {
   explainMediaAccessError,
@@ -172,11 +186,7 @@ export function UserProfileModal({
     Boolean(sessionToken) &&
     hasRoleFlag(me, powers, "setpower", myPowerRole) &&
     canActOnRank(powers, me?.rank || me?.power || "", liveUser.rank || liveUser.power || "");
-  const canAssignSiteBadge =
-    !isSelf &&
-    (hasRoleFlag(me, powers, "edituser", myPowerRole) ||
-      hasRoleFlag(me, powers, "setpower", myPowerRole) ||
-      hasRoleFlag(me, powers, "owner", myPowerRole));
+  const canAssignSiteBadge = !isSelf && canManageSiteBadges(myActorRole);
   const canGiftIcon = canModerate && hasRoleFlag(me, powers, "gifticon", myPowerRole);
   const canViewHistory = !isSelf && Boolean(sessionToken) && hasRoleFlag(me, powers, "history", myPowerRole);
   const showModTab = canModerate || canUnick || canKickRoom || canSetPower || canAssignSiteBadge;
@@ -332,12 +342,7 @@ export function UserProfileModal({
                 <h3
                   dir="auto"
                   className="text-base font-extrabold truncate"
-                  style={{
-                    color: adjustColorForTheme(liveUser.ucol, dark, {
-                      fallbackDark: "#38bdf8",
-                      fallbackLight: "#0369a1",
-                    }),
-                  }}
+                  style={getUserNameStyle(liveUser, dark)}
                 >
                   {liveUser.topic}
                 </h3>
@@ -414,8 +419,19 @@ export function UserProfileModal({
               </div>
 
               {/* Status Message */}
-              <div dir="auto" className="text-xs opacity-75 mt-0.5 line-clamp-2 text-left">
-                {liveUser.msg ? <SafeRichText text={liveUser.msg} /> : "لا توجد حالة حالياً"}
+              <div dir="auto" className="text-xs mt-0.5 line-clamp-2 text-left">
+                {liveUser.msg ? (
+                  <SafeRichText
+                    text={liveUser.msg}
+                    dark={dark}
+                    color={adjustColorForTheme(liveUser.mcol, dark, {
+                      fallbackDark: "#f1f5f9",
+                      fallbackLight: "#0f172a",
+                    })}
+                  />
+                ) : (
+                  "لا توجد حالة حالياً"
+                )}
               </div>
               <div className="flex items-center gap-2 mt-1 text-[11px] opacity-65">
                 <span>{getStatusLabel(liveUser.stat, liveUser.offline)}</span>

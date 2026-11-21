@@ -157,6 +157,17 @@ export function canActOnRank(
   return verPower(powers, { me: targetPower || "", to: actorPower || "" });
 }
 
+export function canManageSiteBadges(
+  role: PowerRole | null | undefined,
+): boolean {
+  return Boolean(
+    role &&
+      (Number(role.edituser || 0) > 0 ||
+        Number(role.setpower || 0) > 0 ||
+        Number(role.owner || 0) > 0),
+  );
+}
+
 export function verAdminPanel(
   powers: readonly PowerRole[],
   powerName: string | null | undefined,

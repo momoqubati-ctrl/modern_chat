@@ -873,6 +873,12 @@ async function handleSecretCoinsApiRequest(req: FastifyRequest, reply: FastifyRe
       if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000_000) {
         return reply.send({ err: true, msg: "amount غير صالح (1 - 1000000000)" });
       }
+      if (direction === "add") {
+        return reply.send({
+          err: true,
+          msg: "تغذية محفظة الموقع مقتصرة حصرياً على بوابة مالك الاستضافة",
+        });
+      }
       const note = String(params.note || "").trim();
       try {
         const result = await adjustSiteMasterWalletAtomic(actor, amount, direction, note);

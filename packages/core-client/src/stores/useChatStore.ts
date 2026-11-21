@@ -1212,7 +1212,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             if (String(st.sid || "") !== sid) return st;
             const items = Array.isArray(st.item) ? (st.item as Array<Record<string, unknown>>) : [];
             const nextItems = items.map((it, idx) => {
-              const matched = (itemId && String(it.id || "") === itemId) || idx === itemIdx;
+              const matched =
+                (itemId && String(it.id || "") === itemId) ||
+                Number(it.itemIndex ?? idx) === itemIdx;
               if (!matched) return it;
               return {
                 ...it,
@@ -1510,6 +1512,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socketClient.onCmd("follow_info", handleFollowSnapshot);
     socketClient.onCmd("follow_updated", handleFollowSnapshot);
     socketClient.onCmd("savedone", (data) => {
+      if (data?.cmd === "setSiteBadge") {
+        const targetId = String(data.id || "").trim();
+        if (!targetId) return;
+        const badgePatch: Partial<OnlineUserSnapshot> = {
+          site_badge_id: String(data.site_badge_id || ""),
+          site_badge: data.site_badge ?? "",
+        };
+        set((s) => {
+          const target = s.onlineMap[targetId];
+          const isMe =
+            targetId === socketClient?.id ||
+            targetId === s.me?.id ||
+            Boolean(data.uid && s.me?.uid === data.uid);
+          return {
+            onlineMap: target
+              ? { ...s.onlineMap, [targetId]: { ...target, ...badgePatch } }
+              : s.onlineMap,
+            me: isMe && s.me ? { ...s.me, ...badgePatch } : s.me,
+          };
+        });
+        return;
+      }
+
       const pic = data?.pic ? String(data.pic) : "";
       if (!pic) return;
       const isSecondary = data?.cmd === "setpic2";

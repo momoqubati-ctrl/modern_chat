@@ -82,6 +82,9 @@ function unauthorized(reply: FastifyReply) {
 export async function registerHostingRoutes(app: FastifyInstance): Promise<void> {
   const portalPath = getPortalPath();
   if (!portalPath) {
+    if (apiConfig.nodeEnv === "production") {
+      throw new Error("HOSTING_PORTAL_PATH is required in production");
+    }
     app.log.warn("Hosting owner portal is disabled because HOSTING_PORTAL_PATH is not configured or invalid");
     return;
   }
@@ -90,6 +93,9 @@ export async function registerHostingRoutes(app: FastifyInstance): Promise<void>
     Boolean(apiConfig.hostingOwnerUsername) &&
     /^\$2[aby]\$\d{2}\$/.test(apiConfig.hostingOwnerPasswordHash);
   if (!hasCredentials) {
+    if (apiConfig.nodeEnv === "production") {
+      throw new Error("HOSTING_OWNER_USERNAME and a bcrypt HOSTING_OWNER_PASSWORD_HASH are required");
+    }
     app.log.warn(
       "Hosting owner portal is disabled because HOSTING_OWNER_USERNAME or bcrypt HOSTING_OWNER_PASSWORD_HASH is missing",
     );
@@ -184,7 +190,18 @@ export async function registerHostingRoutes(app: FastifyInstance): Promise<void>
     };
   });
 
-  app.post(`${portalPath}/fund`, async (req, reply) => {
+  app.post(
+    `${portalPath}/fund`,
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: 60_000,
+          keyGenerator: (req: FastifyRequest) => req.ip,
+        },
+      },
+    },
+    async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     if (!verifyOwnerSession(req)) return unauthorized(reply);
 

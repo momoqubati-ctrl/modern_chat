@@ -51,6 +51,20 @@
   background: rgba(148, 163, 184, 0.45);
 }
 
+/* Wall feed: skip style/layout/paint work for posts that are far offscreen.
+   `auto` keeps the last measured size so the scrollbar does not jump. */
+.wall-post-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
+/* Instagram feed cards get the same offscreen treatment. 560px is close to
+   the real card height so the scrollbar barely moves as cards are measured. */
+.feed-post-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 560px;
+}
+
 @keyframes gift-pop-in {
   0% {
     opacity: 0;

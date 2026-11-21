@@ -274,10 +274,12 @@ export async function ensureFeedTablesExist(): Promise<void> {
           reposts_count INTEGER DEFAULT 0 NOT NULL,
           shares_count INTEGER DEFAULT 0 NOT NULL,
           views_count INTEGER DEFAULT 0 NOT NULL,
+          gifts_count INTEGER DEFAULT 0 NOT NULL,
           visibility VARCHAR(32) DEFAULT 'public' NOT NULL,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         );
+        ALTER TABLE feed_posts ADD COLUMN IF NOT EXISTS gifts_count INTEGER DEFAULT 0 NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS uniq_feed_posts_post_id ON feed_posts (post_id);
         CREATE INDEX IF NOT EXISTS idx_feed_posts_created_at ON feed_posts (created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_feed_posts_author ON feed_posts (author_uid, created_at DESC);
@@ -341,6 +343,30 @@ export async function ensureFeedTablesExist(): Promise<void> {
         );
         CREATE UNIQUE INDEX IF NOT EXISTS uniq_feed_bookmarks ON feed_bookmarks (post_id, user_uid);
         CREATE INDEX IF NOT EXISTS idx_feed_bookmarks_user ON feed_bookmarks (user_uid, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS feed_post_reposts (
+          id BIGSERIAL PRIMARY KEY,
+          post_id VARCHAR(64) NOT NULL,
+          user_uid VARCHAR(255) NOT NULL,
+          created_at BIGINT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uniq_feed_post_reposts ON feed_post_reposts (post_id, user_uid);
+        CREATE INDEX IF NOT EXISTS idx_feed_post_reposts_user ON feed_post_reposts (user_uid, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_feed_post_reposts_post ON feed_post_reposts (post_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS feed_post_gifts (
+          id BIGSERIAL PRIMARY KEY,
+          post_id VARCHAR(64) NOT NULL,
+          sender_uid VARCHAR(255) NOT NULL,
+          gift_file VARCHAR(255) NOT NULL,
+          quantity INTEGER DEFAULT 1 NOT NULL,
+          unit_coin INTEGER DEFAULT 0 NOT NULL,
+          total_coin INTEGER DEFAULT 0 NOT NULL,
+          txid VARCHAR(128) DEFAULT '',
+          created_at BIGINT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_feed_post_gifts_post ON feed_post_gifts (post_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_feed_post_gifts_sender ON feed_post_gifts (sender_uid, created_at DESC);
       `)
       .then(() => {})
       .catch((err: unknown) => {

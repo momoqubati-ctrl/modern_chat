@@ -46,6 +46,7 @@ export function normalizeStorySlides(group: RawStoryGroup | null | undefined): S
       caption: it.caption ? String(it.caption) : "",
       bgColor: it.bgColor ? String(it.bgColor) : "",
       textColor: it.textColor ? String(it.textColor) : "",
+      itemIndex: Number.isInteger(Number(it.itemIndex)) ? Number(it.itemIndex) : idx,
       length: Math.max(3, Number(it.length || 6) || 6),
       time: Number(it.time || group.lastUpdated || Date.now()),
       viewsCount: Math.max(0, Number(it.viewsCount || 0)),

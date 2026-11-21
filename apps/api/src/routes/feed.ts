@@ -3,9 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import sharp from "sharp";
+import {
+  band,
+  eq,
+  getDb,
+  inArray,
+  loadGiftSettings,
+  or,
+  takeRedisRateSlot,
+} from "@newchat/db";
+import { feedGiftSchema, normalizeGiftsGit } from "@newchat/shared";
 import { apiConfig } from "../config.js";
 import {
   extractRequestToken,
+  getHostSettingRow,
+  getRequestCountry,
   getRequestRealIp,
   resolveUserActorByToken,
 } from "../lib/runtime.js";
@@ -21,6 +33,8 @@ import {
   toggleCommentLike,
   toggleFollowUser,
   sendFeedPostGift,
+  togglePostRepost,
+  getPostGiftsList,
 } from "../services/feedService.js";
 
 async function resolveOptionalAuth(req: FastifyRequest) {
@@ -247,38 +261,105 @@ export async function registerFeedRoutes(app: FastifyInstance) {
     const user = await requireAuth(req, reply);
     if (!user) return;
 
-    const body = req.body as {
-      postId: string;
-      giftFile: string;
-      quantity?: number;
-      unitCoin: number;
-      idempotencyKey?: string;
-    };
-
-    if (!body.postId || !body.giftFile || !body.unitCoin) {
-      return reply.code(400).send({ ok: false, message: "بيانات الهدية غير مكتملة" });
+    const parsed = feedGiftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, message: "بيانات الهدية غير صالحة" });
     }
 
-    const idempotencyKey =
-      String(body.idempotencyKey || "").trim() ||
-      `gift_feed_${body.postId}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-
     try {
+      const { db } = getDb();
+      const [giftSettings, hostSetting] = await Promise.all([
+        loadGiftSettings(),
+        getHostSettingRow(req.hostname),
+      ]);
+      if (!giftSettings.giftEnabled) {
+        return reply.code(503).send({ ok: false, message: "إرسال الهدايا متوقف مؤقتاً" });
+      }
+      if (parsed.data.quantity > giftSettings.maxQty) {
+        return reply.code(400).send({
+          ok: false,
+          message: `الحد الأقصى لكمية الهدية هو ${giftSettings.maxQty}`,
+        });
+      }
+
+      const rate = await takeRedisRateSlot(
+        `gift:${user.uid}`,
+        giftSettings.rateLimitMax,
+        giftSettings.rateLimitWindowMs,
+      );
+      if (!rate.ok) {
+        reply.header("Retry-After", String(Math.max(1, Math.ceil(rate.retryAfterMs / 1000))));
+        return reply.code(429).send({
+          ok: false,
+          message: "الرجاء الانتظار قليلاً قبل إرسال هدية أخرى",
+        });
+      }
+
+      const gift = normalizeGiftsGit(hostSetting?.gifts_git).find(
+        (item) => item.file === parsed.data.giftFile,
+      );
+      if (!gift) {
+        return reply.code(400).send({ ok: false, message: "الهدية المطلوبة غير موجودة" });
+      }
+
+      const ip = getRequestRealIp(req);
+      const country = getRequestCountry(req);
+      const ipWildcardRules = ip
+        ? Array.from({ length: ip.length + 1 }, (_value, index) => `${ip.slice(0, index)}*`)
+        : [];
+      const banConditions = [
+        ...(ip ? [eq(band.ip_band, ip)] : []),
+        ...(ipWildcardRules.length ? [inArray(band.ip_band, ipWildcardRules)] : []),
+        ...(user.fp ? [eq(band.device_band, user.fp)] : []),
+        ...(user.username ? [eq(band.decoderDans, user.username)] : []),
+        ...(country !== "--" ? [eq(band.country_band, country)] : []),
+      ];
+      const [matchingBan] = await db
+        .select({ id: band.id })
+        .from(band)
+        .where(or(...banConditions))
+        .limit(1);
+      if (matchingBan) {
+        return reply.code(403).send({ ok: false, message: "لا يمكن تنفيذ العملية لهذا الحساب" });
+      }
+
       const result = await sendFeedPostGift({
         senderUid: String(user.uid),
-        senderIp: getRequestRealIp(req),
-        postId: body.postId,
-        giftFile: body.giftFile,
-        quantity: Math.max(1, Number(body.quantity || 1)),
-        unitCoin: Number(body.unitCoin),
-        idempotencyKey,
+        senderIp: ip,
+        postId: parsed.data.postId,
+        giftFile: gift.file,
+        quantity: parsed.data.quantity,
+        unitCoin: gift.coin,
+        idempotencyKey: parsed.data.idempotencyKey,
       });
 
       return reply.send({ ok: true, transfer: result });
     } catch (err: unknown) {
       req.log.error(err, "Feed gift error");
-      const msg = err instanceof Error ? err.message : "تعذر إرسال الهدية";
-      return reply.code(400).send({ ok: false, message: msg });
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? String((err as { code?: unknown }).code || "")
+          : err instanceof Error
+            ? err.message
+            : "";
+      const knownErrors: Record<string, { status: number; message: string }> = {
+        POST_NOT_FOUND: { status: 404, message: "المنشور غير موجود" },
+        CANNOT_GIFT_SELF: { status: 400, message: "لا يمكنك إرسال هدية لنفسك" },
+        SENDER_NOT_FOUND: { status: 401, message: "تعذر التحقق من حساب المرسل" },
+        RECEIVER_NOT_FOUND: { status: 404, message: "حساب المستلم غير موجود" },
+        INSUFFICIENT_COINS: { status: 400, message: "رصيد الكوينز غير كافٍ" },
+        GIFT_FEES_TOO_HIGH: { status: 400, message: "قيمة الهدية أقل من الرسوم المطبقة" },
+        PAYLOAD_MISMATCH: { status: 409, message: "مفتاح العملية مستخدم لطلب مختلف" },
+        CONCURRENT_TRANSACTION_IN_PROGRESS: {
+          status: 409,
+          message: "العملية قيد المعالجة، يرجى المحاولة مجدداً",
+        },
+      };
+      const knownError = knownErrors[code];
+      if (knownError) {
+        return reply.code(knownError.status).send({ ok: false, message: knownError.message });
+      }
+      return reply.code(500).send({ ok: false, message: "تعذر إرسال الهدية" });
     }
   });
 
@@ -336,6 +417,39 @@ export async function registerFeedRoutes(app: FastifyInstance) {
     } catch (err: unknown) {
       req.log.error(err, "Feed upload error");
       return reply.code(500).send({ ok: false, message: "تعذر رفع الملف" });
+    }
+  });
+
+  // 13. Repost Feed Post
+  app.post("/api/feed/posts/:postId/repost", async (req, reply) => {
+    const user = await requireAuth(req, reply);
+    if (!user) return;
+
+    try {
+      const { postId } = req.params as { postId: string };
+      const result = await togglePostRepost(postId, String(user.uid));
+      return reply.send({ ok: true, ...result });
+    } catch (err: unknown) {
+      req.log.error(err, "Feed repost error");
+      return reply.code(500).send({ ok: false, message: "تعذر إعادة نشر المنشور" });
+    }
+  });
+
+  // 14. Get detailed gifts list for post owner (Lazy loaded on modal open)
+  app.get("/api/feed/posts/:postId/gifts", async (req, reply) => {
+    const user = await requireAuth(req, reply);
+    if (!user) return;
+
+    try {
+      const { postId } = req.params as { postId: string };
+      const result = await getPostGiftsList(postId, String(user.uid));
+      return reply.send({ ok: true, ...result });
+    } catch (err: unknown) {
+      req.log.error(err, "Feed post gifts fetch error");
+      if (err instanceof Error && err.message === "UNAUTHORIZED_GIFTS_VIEW") {
+        return reply.code(403).send({ ok: false, message: "سجل الهدايا متاح فقط لصاحب المنشور" });
+      }
+      return reply.code(500).send({ ok: false, message: "تعذر جلب سجل الهدايا" });
     }
   });
 }

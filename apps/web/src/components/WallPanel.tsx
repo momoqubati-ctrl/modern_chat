@@ -18,7 +18,7 @@ import {
 import { useChatStore } from "@newchat/core-client";
 import type { BroadcastWallPost } from "@newchat/shared";
 import { EMOJI_IMAGE_CLASS, emojiShortcut, applyTextShortcuts } from "../lib/emojiShortcuts.js";
-import { adjustColorForTheme, formatTimeArabic, resolveAssetUrl } from "../lib/mediaUrl.js";
+import { adjustColorForTheme, formatTimeArabic, getUserNameStyle, resolveAssetUrl } from "../lib/mediaUrl.js";
 import {
   explainMediaAccessError,
   isMediaCaptureSupported,
@@ -330,11 +330,22 @@ export function WallPanel({ dark }: WallPanelProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Wall Post Composer */}
-      <form onSubmit={handlePublish} className="p-3 border-b border-slate-800/30 space-y-2 shrink-0">
+      <form onSubmit={handlePublish} autoComplete="off" className="p-3 border-b border-slate-800/30 space-y-2 shrink-0">
         <div className="flex gap-2">
           <input
             ref={postInputRef}
             type="text"
+            name="wall_post_input"
+            id="wall_post_input"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             dir="rtl"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -639,7 +650,7 @@ export function WallPanel({ dark }: WallPanelProps) {
               <article
                 key={p.bid}
                 dir="ltr"
-                className={`rounded-2xl p-3 border text-xs space-y-2.5 text-left ${
+                className={`wall-post-item rounded-2xl p-3 border text-xs space-y-2.5 text-left ${
                   dark ? "bg-slate-900/80 border-slate-800 text-slate-100" : "bg-white border-slate-200 shadow-xs text-slate-900"
                 }`}
               >
@@ -651,12 +662,7 @@ export function WallPanel({ dark }: WallPanelProps) {
                         <span
                           dir="auto"
                           className="font-extrabold truncate"
-                          style={{
-                            color: adjustColorForTheme(p.ucol, dark, {
-                              fallbackDark: "#38bdf8",
-                              fallbackLight: "#0369a1",
-                            }),
-                          }}
+                          style={getUserNameStyle(p, dark)}
                         >
                           {p.topic}
                         </span>
@@ -681,16 +687,17 @@ export function WallPanel({ dark }: WallPanelProps) {
                 <div
                   dir="rtl"
                   className="leading-relaxed break-words font-normal text-right"
-                  style={{
-                    color: p.mcol && p.mcol.toLowerCase() !== "#000000"
+                >
+                  <SafeRichText
+                    text={p.msg}
+                    dark={dark}
+                    color={p.mcol && p.mcol.toLowerCase() !== "#000000"
                       ? adjustColorForTheme(p.mcol, dark, {
                           fallbackDark: "#f1f5f9",
                           fallbackLight: "#0f172a",
                         })
-                      : undefined,
-                  }}
-                >
-                  <SafeRichText text={p.msg} dark={dark} />
+                      : undefined}
+                  />
                 </div>
 
                 {/* Action Bar */}
@@ -887,6 +894,16 @@ export function WallPanel({ dark }: WallPanelProps) {
                       </button>
                       <input
                         type="text"
+                        name="wall_comment_input"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        enterKeyHint="send"
+                        data-lpignore="true"
+                        data-1p-ignore="true"
+                        data-bwignore="true"
+                        data-form-type="other"
                         dir="rtl"
                         value={commentDrafts[p.bid] || ""}
                         onChange={(e) =>

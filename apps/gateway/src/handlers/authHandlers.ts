@@ -14,6 +14,7 @@ import {
   sql,
   storie,
   storieview,
+  story_comment_likes,
   story_comments,
   story_likes,
   sub,
@@ -28,6 +29,7 @@ import {
   guestLoginSchema,
   memberLoginSchema,
   normalizeActiveChatUsername,
+  filterActiveStorySlides,
   parseEvaluationAwardsJson,
   registerSchema,
   sanitizeHtmlText,
@@ -186,11 +188,59 @@ async function buildInitialWallPosts(): Promise<Array<Record<string, unknown>>> 
 export async function loadInitialStories(viewerKey = ""): Promise<Array<Record<string, unknown>>> {
   try {
     const { db } = getDb();
-    const rows = await db.select().from(storie).orderBy(desc(storie.id)).limit(50);
-    if (rows.length === 0) return [];
+    const storedRows = await db.select().from(storie).orderBy(desc(storie.id));
+    const now = Date.now();
+    const preparedRows = storedRows.map((r) => {
+      const rawItems = safeJsonParse<Array<Record<string, unknown>>>(r.item, []);
+      const baseItems =
+        rawItems.length > 0
+          ? rawItems
+          : r.link
+            ? [{ id: `legacy_${r.id}`, type: "image", src: String(r.link), length: 6, time: r.lastUpdated }]
+            : [];
+      return {
+        ...r,
+        activeItems: filterActiveStorySlides(baseItems, r.lastUpdated, now),
+      };
+    });
+    const expiredRows = preparedRows.filter((r) => r.activeItems.length === 0);
+    const expiredIds = expiredRows.map((r) => r.id);
+    const expiredSids = Array.from(new Set(expiredRows.map((r) => String(r.sid || "")).filter(Boolean)));
+    if (expiredIds.length > 0) {
+      const expiredComments = expiredSids.length
+        ? await db
+            .select({ cid: story_comments.cid })
+            .from(story_comments)
+            .where(inArray(story_comments.story_sid, expiredSids))
+        : [];
+      const expiredCommentIds = expiredComments.map((comment) => comment.cid);
+      if (expiredCommentIds.length > 0) {
+        await db
+          .delete(story_comment_likes)
+          .where(inArray(story_comment_likes.comment_cid, expiredCommentIds));
+      }
 
-    // Sort newest first by lastUpdated
-    rows.sort((a, b) => (Number(b.lastUpdated || 0) || b.id) - (Number(a.lastUpdated || 0) || a.id));
+      await Promise.all([
+        db.delete(storie).where(inArray(storie.id, expiredIds)),
+        ...(expiredSids.length
+          ? [
+              db.delete(story_likes).where(inArray(story_likes.story_sid, expiredSids)),
+              db.delete(story_comments).where(inArray(story_comments.story_sid, expiredSids)),
+              db.delete(storieview).where(inArray(storieview.idsto, expiredSids)),
+            ]
+          : []),
+      ]);
+    }
+
+    const rows = preparedRows
+      .filter((r) => r.activeItems.length > 0)
+      .sort(
+        (a, b) =>
+          Math.max(...b.activeItems.map((item) => item.time)) -
+          Math.max(...a.activeItems.map((item) => item.time)),
+      )
+      .slice(0, 50);
+    if (rows.length === 0) return [];
 
     const storySids = Array.from(new Set(rows.map((r) => String(r.sid || "")).filter(Boolean)));
     const cleanViewer = String(viewerKey || "").trim();
@@ -290,16 +340,9 @@ export async function loadInitialStories(viewerKey = ""): Promise<Array<Record<s
 
     return rows.map((r) => {
       const sid = String(r.sid || "");
-      const rawItems = safeJsonParse<Array<Record<string, unknown>>>(r.item, []);
-      const baseItems =
-        rawItems.length > 0
-          ? rawItems
-          : r.link
-            ? [{ id: `legacy_${r.id}`, type: "image", src: String(r.link), length: 6, time: Number(r.lastUpdated || 0) || Date.now() }]
-            : [];
-      const enrichedItems = baseItems.map((it, idx) => {
-        const itemId = String(it.id || `slide_${r.id}_${idx}`);
-        const viewKey = `${sid}::${idx}`;
+      const enrichedItems = r.activeItems.map((it) => {
+        const itemId = String(it.id || `slide_${r.id}_${it.itemIndex}`);
+        const viewKey = `${sid}::${it.itemIndex}`;
         const targetKey = `${sid}::${itemId}`;
         return {
           ...it,
@@ -331,8 +374,9 @@ export async function loadInitialStories(viewerKey = ""): Promise<Array<Record<s
         currentPreview: safeJsonParse<unknown[]>(r.currentPreview, []),
       };
     });
-  } catch {
-    return [];
+  } catch (error) {
+    console.error("[Gateway] Failed to load active stories:", error);
+    throw error;
   }
 }
 

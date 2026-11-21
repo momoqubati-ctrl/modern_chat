@@ -10,7 +10,9 @@ export interface FeedPostCardProps {
   onBookmark: (postId: string) => void;
   onFollow: (authorUid: string) => void;
   onOpenComments: (postId: string) => void;
+  onRepost?: (postId: string) => void;
   onOpenGiftModal?: (post: FeedPost) => void;
+  onViewGifts?: (postId: string) => void;
   onDeletePost?: (postId: string) => void;
   canDelete?: boolean;
 }

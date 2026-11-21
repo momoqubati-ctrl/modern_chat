@@ -25,6 +25,7 @@ export const feed_posts = pgTable(
     reposts_count: integer("reposts_count").default(0).notNull(),
     shares_count: integer("shares_count").default(0).notNull(),
     views_count: integer("views_count").default(0).notNull(),
+    gifts_count: integer("gifts_count").default(0).notNull(),
     visibility: varchar("visibility", { length: 32 }).default("public").notNull(),
     created_at: bigint("created_at", { mode: "number" }).notNull(),
     updated_at: bigint("updated_at", { mode: "number" }).notNull(),
@@ -121,7 +122,43 @@ export const feed_bookmarks = pgTable(
   ]
 );
 
+export const feed_post_reposts = pgTable(
+  "feed_post_reposts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    post_id: varchar("post_id", { length: 64 }).notNull(),
+    user_uid: varchar("user_uid", { length: 255 }).notNull(),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uniq_feed_post_reposts").on(t.post_id, t.user_uid),
+    index("idx_feed_post_reposts_user").on(t.user_uid, t.created_at),
+    index("idx_feed_post_reposts_post").on(t.post_id, t.created_at),
+  ]
+);
+
+export const feed_post_gifts = pgTable(
+  "feed_post_gifts",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    post_id: varchar("post_id", { length: 64 }).notNull(),
+    sender_uid: varchar("sender_uid", { length: 255 }).notNull(),
+    gift_file: varchar("gift_file", { length: 255 }).notNull(),
+    quantity: integer("quantity").default(1).notNull(),
+    unit_coin: integer("unit_coin").default(0).notNull(),
+    total_coin: integer("total_coin").default(0).notNull(),
+    txid: varchar("txid", { length: 128 }).default(""),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("idx_feed_post_gifts_post").on(t.post_id, t.created_at),
+    index("idx_feed_post_gifts_sender").on(t.sender_uid, t.created_at),
+  ]
+);
+
 export type FeedPostRecord = typeof feed_posts.$inferSelect;
 export type NewFeedPostRecord = typeof feed_posts.$inferInsert;
 export type FeedPostMediaRecord = typeof feed_post_media.$inferSelect;
 export type FeedCommentRecord = typeof feed_comments.$inferSelect;
+export type FeedPostRepostRecord = typeof feed_post_reposts.$inferSelect;
+export type FeedPostGiftRecord = typeof feed_post_gifts.$inferSelect;

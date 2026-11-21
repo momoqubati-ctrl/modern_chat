@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowLeftRight, CheckCircle2, Coins, ExternalLink, Plus, RefreshCw, Store, Wallet, XCircle } from "lucide-react";
+import { ArrowLeftRight, CheckCircle2, Coins, ExternalLink, Plus, RefreshCw, ShieldCheck, Store, Wallet, XCircle } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
 import { formatDateTimeArabic } from "../../lib/mediaUrl.js";
 import type { CpTabProps } from "./CpOverviewLogs.js";
@@ -8,10 +8,6 @@ export function CpEconomyTab({ dark, token, onNotify }: CpTabProps) {
   const getApiClient = useChatStore((s) => s.getApiClient);
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const [mwAmount, setMwAmount] = useState("1000");
-  const [mwDir, setMwDir] = useState<"add" | "subtract">("add");
-  const [mwNote, setMwNote] = useState("");
 
   const [agentForm, setAgentForm] = useState({ name: "", username: "", password: "", country_code: "SA", city: "", phone: "", commission_type: "percent", commission_value: "10" });
   const [transferAgentId, setTransferAgentId] = useState("");
@@ -48,17 +44,6 @@ export function CpEconomyTab({ dark, token, onNotify }: CpTabProps) {
   const inputCls = `w-full rounded-xl px-3 py-2 text-xs border outline-none ${
     dark ? "bg-slate-950 border-slate-700 text-slate-100" : "bg-white border-slate-300 text-slate-900"
   }`;
-
-  const handleAdjustMaster = async (e: FormEvent) => {
-    e.preventDefault();
-    const res = await getApiClient().cpCommand(token, "master_wallet_adjust", {
-      amount: Number(mwAmount) || 0,
-      direction: mwDir,
-      note: mwNote.trim(),
-    });
-    onNotify(String(res.msg || "تم التنفيذ"), !res.err);
-    if (!res.err) void load();
-  };
 
   const handleCreateAgent = async (e: FormEvent) => {
     e.preventDefault();
@@ -118,17 +103,17 @@ export function CpEconomyTab({ dark, token, onNotify }: CpTabProps) {
           </button>
         </div>
 
-        <form onSubmit={handleAdjustMaster} className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-          <select value={mwDir} onChange={(e) => setMwDir(e.target.value as "add" | "subtract")} className={inputCls}>
-            <option value="add">إيداع رصيد</option>
-            <option value="subtract">سحب / خصم</option>
-          </select>
-          <input type="number" min={1} value={mwAmount} onChange={(e) => setMwAmount(e.target.value)} className={inputCls} />
-          <input type="text" value={mwNote} onChange={(e) => setMwNote(e.target.value)} placeholder="ملاحظة..." className={inputCls} />
-          <button type="submit" className="py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-extrabold">
-            تنفيذ الحركة
-          </button>
-        </form>
+        <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 text-xs ${
+          dark ? "bg-amber-950/20 border-amber-800/40 text-amber-200" : "bg-amber-50 border-amber-200 text-amber-900"
+        }`}>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>تغذية محفظة الموقع الرئيسية مؤمنة ومقتصرة حصرياً على بوابة مالك الاستضافة.</span>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 shrink-0">
+            بوابة المالك فقط
+          </span>
+        </div>
       </div>
 
       {/* Pending Topup Orders */}

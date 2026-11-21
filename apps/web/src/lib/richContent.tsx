@@ -320,10 +320,12 @@ function getCachedParse(
 function SafeRichTextImpl({
   text,
   dark = true,
+  color,
   emos: propEmos,
 }: {
   text: unknown;
   dark?: boolean;
+  color?: string;
   emos?: readonly string[];
 }) {
   const storeEmos = useChatStore((s) => s.emos);
@@ -352,7 +354,15 @@ function SafeRichTextImpl({
             : "border-sky-300/60 bg-sky-50/70 text-slate-900 shadow-2xs"
         }`}
       >
-        {hasText && <div dir="rtl" className="break-words font-medium text-right">{parsed.nodes}</div>}
+        {hasText && (
+          <div
+            dir="rtl"
+            className="break-words font-medium text-right"
+            style={color ? { color } : undefined}
+          >
+            {parsed.nodes}
+          </div>
+        )}
         {youtubeId && <YouTubePlayCard youtubeId={youtubeId} dark={dark} />}
         {showMediaPreview && parsed.cardLink && (
           <AttachmentRenderer file={parsed.cardLink} fileType={mediaType!} dark={dark} />
@@ -378,7 +388,11 @@ function SafeRichTextImpl({
   }
 
   return (
-    <span dir="auto" className={`break-words whitespace-pre-wrap ${dark ? "text-slate-100" : "text-slate-900"}`}>
+    <span
+      dir="auto"
+      className={`break-words whitespace-pre-wrap ${dark ? "text-slate-100" : "text-slate-900"}`}
+      style={color ? { color } : undefined}
+    >
       {parsed.nodes}
     </span>
   );
@@ -425,6 +439,7 @@ export function AttachmentRenderer({
           src={resolved}
           alt="صورة مرفقة"
           loading="lazy"
+          decoding="async"
           className="max-h-64 w-auto object-contain bg-black/20"
         />
       </a>
@@ -442,7 +457,7 @@ export function AttachmentRenderer({
   }
 
   if (effectiveType === "video") {
-    return <VideoPlayCard file={file} />;
+    return <VideoPlayCard file={file} dark={dark} />;
   }
 
   return (

@@ -7,12 +7,19 @@ import { FeedStoriesBar } from "./FeedStoriesBar.js";
 import { FeedPostCard } from "./FeedPostCard.js";
 import { FeedCommentsSheet } from "./FeedCommentsSheet.js";
 import { FeedCreatePostModal } from "./FeedCreatePostModal.js";
+import { FeedPostGiftsModal } from "./FeedPostGiftsModal.js";
 import { CreateStoryModal } from "../stories/CreateStoryModal.js";
 import { StoryViewerModal } from "../stories/StoryViewerModal.js";
 
 interface InstagramFeedViewProps {
   dark: boolean;
   onBack?: () => void;
+}
+
+function createFeedGiftIdempotencyKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
@@ -35,6 +42,7 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
   const loadMorePosts = useFeedStore((s) => s.loadMorePosts);
   const toggleLikePost = useFeedStore((s) => s.toggleLikePost);
   const toggleBookmarkPost = useFeedStore((s) => s.toggleBookmarkPost);
+  const toggleRepost = useFeedStore((s) => s.toggleRepost);
   const toggleFollow = useFeedStore((s) => s.toggleFollow);
   const createPost = useFeedStore((s) => s.createPost);
   const openComments = useFeedStore((s) => s.openComments);
@@ -43,6 +51,12 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
   const addComment = useFeedStore((s) => s.addComment);
   const toggleCommentLike = useFeedStore((s) => s.toggleCommentLike);
   const sendPostGift = useFeedStore((s) => s.sendPostGift);
+
+  const isViewingGiftsModal = useFeedStore((s) => s.isViewingGiftsModal);
+  const viewingGiftsData = useFeedStore((s) => s.viewingGiftsData);
+  const isLoadingGifts = useFeedStore((s) => s.isLoadingGifts);
+  const openGiftsModal = useFeedStore((s) => s.openGiftsModal);
+  const closeGiftsModal = useFeedStore((s) => s.closeGiftsModal);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [giftingPost, setGiftingPost] = useState<FeedPost | null>(null);
@@ -58,6 +72,7 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
   } | null>(null);
 
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
+  const feedGiftAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const apiUrl = resolveApiBaseUrl();
 
   // Load feed on mount
@@ -134,6 +149,18 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
       return;
     }
 
+    const fingerprint = JSON.stringify([
+      giftingPost.postId,
+      selectedGiftFile,
+      giftQuantity,
+    ]);
+    if (feedGiftAttemptRef.current?.fingerprint !== fingerprint) {
+      feedGiftAttemptRef.current = {
+        fingerprint,
+        key: createFeedGiftIdempotencyKey(),
+      };
+    }
+
     setIsSendingGift(true);
     try {
       const ok = await sendPostGift(
@@ -141,13 +168,14 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
           postId: giftingPost.postId,
           giftFile: selectedGiftFile,
           quantity: giftQuantity,
-          unitCoin,
+          idempotencyKey: feedGiftAttemptRef.current.key,
         },
         apiUrl,
         token
       );
 
       if (ok) {
+        feedGiftAttemptRef.current = null;
         pushNotice(`تم إرسال هدية ${selectedGift.name || "الهدية"} بنجاح لصاحب المنشور! 🎁`, { topic: "الهدايا" });
         setGiftingPost(null);
         setSelectedGiftFile("");
@@ -219,8 +247,10 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
                 currentUid={me?.uid ? String(me.uid) : undefined}
                 onLike={(pId) => toggleLikePost(pId, apiUrl, token)}
                 onBookmark={(pId) => toggleBookmarkPost(pId, apiUrl, token)}
+                onRepost={(pId) => toggleRepost(pId, apiUrl, token)}
                 onFollow={(authorUid) => toggleFollow(authorUid, apiUrl, token)}
                 onOpenComments={(pId) => openComments(pId, apiUrl, token)}
+                onViewGifts={(pId) => openGiftsModal(pId, apiUrl, token)}
                 onOpenGiftModal={(p) => {
                   setGiftingPost(p);
                   if (gifts.length > 0 && !selectedGiftFile) {
@@ -400,6 +430,15 @@ export function InstagramFeedView({ dark, onBack }: InstagramFeedViewProps) {
           onClose={() => setStoryViewerPos(null)}
         />
       )}
+
+      {/* 8. Post Gifts List Modal (Lazy loaded for author) */}
+      <FeedPostGiftsModal
+        dark={dark}
+        isOpen={isViewingGiftsModal}
+        isLoading={isLoadingGifts}
+        giftsData={viewingGiftsData}
+        onClose={closeGiftsModal}
+      />
     </div>
   );
 }

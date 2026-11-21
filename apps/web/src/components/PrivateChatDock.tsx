@@ -1230,6 +1230,7 @@ export function PrivateChatDock({
             {/* Composer */}
             <form
               onSubmit={handleSend}
+              autoComplete="off"
               className="p-2.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center gap-1.5 shrink-0 bg-slate-50/50 dark:bg-slate-950/20"
             >
               {/* Smiley Button */}
@@ -1302,6 +1303,17 @@ export function PrivateChatDock({
               <input
                 ref={inputRef}
                 type="text"
+                name="private_msg_input"
+                id="private_msg_input"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                enterKeyHint="send"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
                 value={draft}
                 onChange={(e) => handleDraftChange(e.target.value)}
                 placeholder={uploading ? "جاري رفع الملف..." : "اكتب رسالة خاصة..."}
@@ -1592,6 +1604,16 @@ export function PrivateChatDock({
                 </label>
                 <input
                   type="text"
+                  name="pm_media_caption"
+                  id="pm_media_caption"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   value={mediaCaption}
                   onChange={(e) => setMediaCaption(e.target.value)}
                   onKeyDown={(e) => {

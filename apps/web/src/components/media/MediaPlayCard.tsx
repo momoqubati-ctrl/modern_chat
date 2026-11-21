@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Play } from "lucide-react";
+import { Film, Play } from "lucide-react";
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
 import {
   formatMediaTime,
@@ -67,6 +67,7 @@ export function YouTubePlayCard({
           src={`https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg`}
           alt="صورة مصغرة للفيديو"
           loading="lazy"
+          decoding="async"
           draggable={false}
           onError={() => setThumbFailed(true)}
           className="absolute inset-0 h-full w-full object-cover opacity-90"
@@ -91,7 +92,13 @@ export function YouTubePlayCard({
   );
 }
 
-export function VideoPlayCard({ file }: { file: string }) {
+export function VideoPlayCard({
+  file,
+  dark = true,
+}: {
+  file: string;
+  dark?: boolean;
+}) {
   const resolved = resolveAssetUrl(file, "sendfile", "");
   const key = `v:${file}`;
   const isActive = useIsMediaActive(key);
@@ -102,32 +109,59 @@ export function VideoPlayCard({ file }: { file: string }) {
   return (
     <div
       dir="ltr"
-      className="group relative mt-1.5 max-w-xs overflow-hidden rounded-xl border border-slate-700/50 bg-black"
+      className={`group relative mt-1.5 w-full max-w-xs overflow-hidden rounded-xl border ${
+        dark ? "border-slate-700/60 bg-slate-950" : "border-slate-300 bg-slate-100"
+      }`}
     >
-      {/* Poster surface: muted, metadata-only, never interactive. */}
-      <video
-        src={resolved}
-        preload="metadata"
-        muted
-        playsInline
-        tabIndex={-1}
-        className="pointer-events-none aspect-video w-full object-cover opacity-90"
-      />
-      <button
-        type="button"
-        onClick={() => playMedia({ key, kind: "video", src: resolved, title: "فيديو مرفوع" })}
-        aria-label="تشغيل الفيديو"
-        className="absolute inset-0 flex items-center justify-center bg-black/25 transition group-hover:bg-black/40"
-      >
-        {isActive ? (
-          <PlayBadge dark />
-        ) : (
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-900/85 text-white shadow-lg ring-1 ring-white/30 transition group-hover:scale-105">
-            <Play className="ml-0.5 h-6 w-6" fill="currentColor" />
-          </span>
-        )}
-      </button>
-      {!isActive && savedPos > 5 && <ResumeHint seconds={savedPos} dark />}
+      {/*
+        Static poster — intentionally no <video> here.
+        A metadata preload per wall post opens a media session and decodes a
+        frame for every video while the user scrolls, which stalls weaker
+        phone GPUs. The real media element is created only inside the single
+        floating player after the user taps this card.
+      */}
+      <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden">
+        <div
+          aria-hidden
+          className={`absolute inset-0 ${
+            dark
+              ? "bg-[radial-gradient(120%_120%_at_25%_15%,#334155_0%,#111827_48%,#000_100%)]"
+              : "bg-[radial-gradient(120%_120%_at_25%_15%,#e2e8f0_0%,#cbd5e1_48%,#94a3b8_100%)]"
+          }`}
+        />
+        <Film
+          aria-hidden
+          className={`absolute start-2.5 top-2.5 h-4 w-4 ${
+            dark ? "text-white/25" : "text-slate-700/30"
+          }`}
+        />
+        <button
+          type="button"
+          onClick={() => playMedia({ key, kind: "video", src: resolved, title: "فيديو مرفوع" })}
+          aria-label="تشغيل الفيديو"
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          {isActive ? (
+            <PlayBadge dark={dark} />
+          ) : (
+            <span
+              className={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ring-1 transition group-hover:scale-105 ${
+                dark ? "bg-white/15 text-white ring-white/35" : "bg-slate-900/80 text-white ring-white/40"
+              }`}
+            >
+              <Play className="ml-0.5 h-6 w-6" fill="currentColor" />
+            </span>
+          )}
+        </button>
+        <span
+          className={`absolute bottom-2 end-2 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+            dark ? "bg-black/60 text-slate-200" : "bg-white/80 text-slate-700"
+          }`}
+        >
+          فيديو
+        </span>
+      </div>
+      {!isActive && savedPos > 5 && <ResumeHint seconds={savedPos} dark={dark} />}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
   normalizeSiteBadgesCatalog,
   normalizeSiteSettingShape,
   parseRoomOwnerMeta,
+  filterActiveStorySlides,
   sortOnlineSnapshots,
   type OnlineUserSnapshot,
 } from "@newchat/shared";
@@ -352,7 +353,26 @@ export async function registerPublicRoutes(app: FastifyInstance) {
   app.get("/storieswall", async () => {
     return getRedisJsonCached("newchat:api:storieswall", 20, async () => {
       const { db } = getDb();
-      return db.select().from(storie).orderBy(desc(storie.id)).limit(50);
+      const rows = await db.select().from(storie).orderBy(desc(storie.id));
+      return rows
+        .flatMap((row) => {
+          const items = safeJsonParse<Array<Record<string, unknown>>>(row.item, []);
+          const baseItems =
+            items.length > 0
+              ? items
+              : row.link
+                ? [{ id: `legacy_${row.id}`, type: "image", src: String(row.link), length: 6, time: row.lastUpdated }]
+                : [];
+          const activeItems = filterActiveStorySlides(baseItems, row.lastUpdated);
+          if (activeItems.length === 0) return [];
+          return [
+            {
+              ...row,
+              item: JSON.stringify(activeItems),
+            },
+          ];
+        })
+        .slice(0, 50);
     });
   });
 

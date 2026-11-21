@@ -9,10 +9,10 @@ interface FeedTopHeaderProps {
 export function FeedTopHeader({ dark, onOpenCreate, onBack }: FeedTopHeaderProps) {
   return (
     <header
-      className={`sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b backdrop-blur-md transition-colors ${
+      className={`sticky top-0 z-30 flex items-center justify-between px-4 py-3 border-b transition-colors ${
         dark
-          ? "bg-slate-950/80 border-slate-800/80 text-white"
-          : "bg-white/80 border-slate-200/80 text-slate-900"
+          ? "bg-slate-950 border-slate-800/80 text-white"
+          : "bg-white border-slate-200/80 text-slate-900"
       }`}
     >
       <div className="flex items-center gap-3">

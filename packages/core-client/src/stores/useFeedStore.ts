@@ -34,10 +34,27 @@ export interface FeedPost {
   repostsCount: number;
   sharesCount: number;
   viewsCount: number;
+  giftsCount: number;
   createdAt: number;
   isLiked?: boolean;
   isBookmarked?: boolean;
+  isReposted?: boolean;
   isFollowing?: boolean;
+  repostAuthor?: FeedAuthor | null;
+}
+
+export interface PostGiftSenderItem {
+  sender: FeedAuthor;
+  giftFile: string;
+  totalQuantity: number;
+  totalCoins: number;
+  lastSentAt: number;
+}
+
+export interface PostGiftsData {
+  postId: string;
+  totalGiftsCount: number;
+  gifts: PostGiftSenderItem[];
 }
 
 export interface FeedComment {
@@ -83,6 +100,7 @@ interface FeedState {
   loadMorePosts: (apiUrl?: string, token?: string) => Promise<void>;
   toggleLikePost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
   toggleBookmarkPost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
+  toggleRepost: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
   toggleFollow: (targetUid: string, apiUrl?: string, token?: string) => Promise<void>;
   createPost: (
     params: {
@@ -109,11 +127,19 @@ interface FeedState {
       postId: string;
       giftFile: string;
       quantity?: number;
-      unitCoin: number;
+      idempotencyKey: string;
     },
     apiUrl?: string,
     token?: string
   ) => Promise<boolean>;
+
+  // Post Gifts Modal State (Lazy Loaded)
+  isViewingGiftsModal: boolean;
+  viewingGiftsPostId: string | null;
+  viewingGiftsData: PostGiftsData | null;
+  isLoadingGifts: boolean;
+  openGiftsModal: (postId: string, apiUrl?: string, token?: string) => Promise<void>;
+  closeGiftsModal: () => void;
 }
 
 export const useFeedStore = create<FeedState>((set, get) => ({
@@ -129,6 +155,11 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   isLoadingComments: false,
   replyingTo: null,
   isPostingComment: false,
+
+  isViewingGiftsModal: false,
+  viewingGiftsPostId: null,
+  viewingGiftsData: null,
+  isLoadingGifts: false,
 
   loadPosts: async (apiUrl = "", token = "") => {
     set({ isLoading: true, error: null });
@@ -234,6 +265,43 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         set((state) => ({
           posts: state.posts.map((p) =>
             p.postId === postId ? { ...p, isBookmarked: data.bookmarked } : p
+          ),
+        }));
+      }
+    } catch {
+      // Revert if error
+      get().loadPosts(apiUrl, token);
+    }
+  },
+
+  toggleRepost: async (postId: string, apiUrl = "", token = "") => {
+    if (!token) return;
+
+    // Optimistic toggle
+    set((state) => ({
+      posts: state.posts.map((p) => {
+        if (p.postId !== postId) return p;
+        const willRepost = !p.isReposted;
+        return {
+          ...p,
+          isReposted: willRepost,
+          repostsCount: willRepost ? p.repostsCount + 1 : Math.max(0, p.repostsCount - 1),
+        };
+      }),
+    }));
+
+    try {
+      const res = await fetch(`${apiUrl}/api/feed/posts/${postId}/repost`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.ok) {
+        set((state) => ({
+          posts: state.posts.map((p) =>
+            p.postId === postId
+              ? { ...p, isReposted: data.reposted, repostsCount: data.repostsCount }
+              : p
           ),
         }));
       }
@@ -483,9 +551,54 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         body: JSON.stringify(params),
       });
       const data = await res.json();
+      if (data.ok) {
+        const qty = params.quantity ?? 1;
+        set((state) => ({
+          posts: state.posts.map((p) =>
+            p.postId === params.postId ? { ...p, giftsCount: (p.giftsCount || 0) + qty } : p
+          ),
+        }));
+      }
       return Boolean(data.ok);
     } catch {
       return false;
     }
+  },
+
+  openGiftsModal: async (postId: string, apiUrl = "", token = "") => {
+    set({
+      isViewingGiftsModal: true,
+      viewingGiftsPostId: postId,
+      isLoadingGifts: true,
+      viewingGiftsData: null,
+    });
+
+    if (!token) {
+      set({ isLoadingGifts: false });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${apiUrl}/api/feed/posts/${postId}/gifts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.ok) {
+        set({ viewingGiftsData: data, isLoadingGifts: false });
+      } else {
+        set({ isLoadingGifts: false });
+      }
+    } catch {
+      set({ isLoadingGifts: false });
+    }
+  },
+
+  closeGiftsModal: () => {
+    set({
+      isViewingGiftsModal: false,
+      viewingGiftsPostId: null,
+      viewingGiftsData: null,
+      isLoadingGifts: false,
+    });
   },
 }));

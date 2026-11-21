@@ -50,6 +50,13 @@ export const giftSendSchema = z.object({
   idempotencyKey: z.string().trim().max(128).optional(),
 });
 
+export const feedGiftSchema = z.object({
+  postId: z.string().trim().min(1).max(64),
+  giftFile: z.string().trim().min(1).max(255),
+  quantity: z.number().int().min(1).max(100).default(1),
+  idempotencyKey: z.string().trim().regex(/^[A-Za-z0-9._:-]{16,128}$/),
+});
+
 export const giftFeeSlabSchema = z.object({
   slabMin: z.number().int().min(1).max(2_147_483_647),
   slabMax: z.number().int().min(1).max(2_147_483_647).nullable(),

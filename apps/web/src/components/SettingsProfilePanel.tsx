@@ -24,12 +24,14 @@ import {
   Wallet,
 } from "lucide-react";
 import { useChatStore } from "@newchat/core-client";
+import { canManageSiteBadges } from "@newchat/shared";
 import { formatDateTimeArabic, normalizeHexColor, resolveAssetUrl } from "../lib/mediaUrl.js";
 import { getBadgeStyle } from "../lib/badgeStyle.js";
 import {
   canAccessControlPanel,
   canToggleStealth,
   hasRoleFlag,
+  resolveMemberRole,
 } from "../lib/permissions.js";
 import { isSoundMuted, setSoundMuted } from "../lib/soundFx.js";
 import { MemberAvatar, MemberBadgesInline, getStatusDotClass } from "./MemberAvatar.js";
@@ -114,6 +116,7 @@ export function SettingsProfilePanel({
   const canTheme = hasRoleFlag(me, powers, "chattem", myPowerRole);
   const canFrame = hasRoleFlag(me, powers, "frame", myPowerRole);
   const canBanner = hasRoleFlag(me, powers, "banner", myPowerRole);
+  const canManageSiteBadge = canManageSiteBadges(resolveMemberRole(me, powers, myPowerRole));
 
   const handleSaveProfile = (e: FormEvent) => {
     e.preventDefault();
@@ -532,8 +535,10 @@ export function SettingsProfilePanel({
               {me?.site_badge_id && (
                 <button
                   type="button"
+                  disabled={!canManageSiteBadge}
                   onClick={() => setSiteBadge("")}
-                  className="text-[11px] text-rose-400 hover:underline"
+                  title={canManageSiteBadge ? undefined : "لا تملك صلاحية التحكم بشارات العضوية"}
+                  className="text-[11px] text-rose-400 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   إزالة الشارة
                 </button>
@@ -553,8 +558,10 @@ export function SettingsProfilePanel({
                     <button
                       key={id}
                       type="button"
+                      disabled={!canManageSiteBadge}
                       onClick={() => setSiteBadge(id)}
-                      className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-[11px] font-bold transition ${
+                      title={canManageSiteBadge ? undefined : "لا تملك صلاحية التحكم بشارات العضوية"}
+                      className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         active
                           ? "border-amber-500 bg-amber-500/15 ring-1 ring-amber-500"
                           : dark

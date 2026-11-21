@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
-import { X, Image, Video, Music, Loader2, Plus, Trash2 } from "lucide-react";
+import { X, Image, Video, Music, Loader2, Plus, Trash2, Hash } from "lucide-react";
 import { resolveAssetUrl } from "../../lib/mediaUrl.js";
+import { HashtagText } from "./HashtagText.js";
 
 interface MediaPreview {
   file: File;
@@ -205,16 +206,21 @@ export function FeedCreatePostModal({
             />
           </div>
 
-          {/* Caption Textarea */}
+          {/* Caption Textarea & Hashtags */}
           <div>
-            <label className="block text-xs font-bold text-slate-400 mb-1.5">
-              وصف المنشور (Caption)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-slate-400">
+                وصف المنشور (Caption)
+              </label>
+              <span className="text-[10px] text-slate-400 font-medium">
+                {caption.length}/2000
+              </span>
+            </div>
             <textarea
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder="اكتب وصفاً للمنشور مع هاشتاجات... #newchat #reels"
-              rows={4}
+              placeholder="اكتب وصفاً للمنشور مع هاشتاجات... #اكسبلور #يوميات #تصويري"
+              rows={3}
               maxLength={2000}
               className={`w-full p-3 rounded-xl text-xs outline-none border transition-colors resize-none placeholder:text-slate-400 ${
                 dark
@@ -222,6 +228,39 @@ export function FeedCreatePostModal({
                   : "bg-slate-50 border-slate-200 focus:border-rose-500"
               }`}
             />
+
+            {/* Quick Hashtag Suggestions */}
+            <div className="mt-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-500 mb-1.5">
+                <Hash className="w-3.5 h-3.5" />
+                <span>هاشتاجات مقترحة:</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {["#اكسبلور", "#ترند", "#يوميات", "#شات", "#موسيقى", "#تصويري", "#لايف", "#جديد"].map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      const trimmed = caption.trim();
+                      if (!trimmed.includes(tag)) {
+                        setCaption(trimmed ? `${trimmed} ${tag}` : tag);
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 border border-rose-500/25 transition-all active:scale-95"
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Hashtag Preview */}
+            {caption.includes("#") && (
+              <div className="mt-2.5 p-2.5 rounded-xl border border-dashed border-rose-500/30 bg-rose-500/5 text-xs">
+                <span className="text-[10px] font-bold text-slate-400 block mb-1">معاينة النص مع الهاشتاجات:</span>
+                <HashtagText text={caption} />
+              </div>
+            )}
           </div>
 
           {/* Audio Title Input */}

@@ -489,7 +489,7 @@ export function ChatComposer({
       )}
 
       {/* Composer Row */}
-      <form onSubmit={handleSubmit} className="p-2.5 flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+      <form onSubmit={handleSubmit} autoComplete="off" className="p-2.5 flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
         {/* Toolbar Buttons */}
         <div className="flex items-center gap-1 shrink-0">
           <button
@@ -631,6 +631,17 @@ export function ChatComposer({
         <input
           ref={inputRef}
           type="text"
+          name="chat_room_msg"
+          id="chat_room_msg"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="send"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-form-type="other"
           value={draft}
           onChange={(e) => handleDraftChange(e.target.value)}
           disabled={Boolean(me?.muted || me?.meiut)}
@@ -1016,6 +1027,16 @@ export function ChatComposer({
                 </label>
                 <input
                   type="text"
+                  name="media_caption_text"
+                  id="media_caption_text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   value={mediaCaption}
                   onChange={(e) => setMediaCaption(e.target.value)}
                   onKeyDown={(e) => {

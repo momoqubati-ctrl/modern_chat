@@ -7,6 +7,8 @@ import {
   feed_comments,
   feed_comment_likes,
   feed_bookmarks,
+  feed_post_reposts,
+  feed_post_gifts,
   users,
   followers,
   executeWithIdempotency,
@@ -52,10 +54,13 @@ export interface FeedPostDto {
   repostsCount: number;
   sharesCount: number;
   viewsCount: number;
+  giftsCount: number;
   createdAt: number;
   isLiked?: boolean;
   isBookmarked?: boolean;
+  isReposted?: boolean;
   isFollowing?: boolean;
+  repostAuthor?: FeedAuthor | null;
 }
 
 export interface FeedCommentDto {
@@ -155,10 +160,11 @@ export async function getFeedPosts(params: {
   // 3. User interaction flags if userUid provided
   const likedSet = new Set<string>();
   const bookmarkedSet = new Set<string>();
+  const repostedSet = new Set<string>();
   const followingSet = new Set<string>();
 
   if (params.userUid) {
-    const [likes, bookmarks, followings] = await Promise.all([
+    const [likes, bookmarks, reposts, followings] = await Promise.all([
       db
         .select({ postId: feed_post_likes.post_id })
         .from(feed_post_likes)
@@ -178,6 +184,15 @@ export async function getFeedPosts(params: {
           ),
         ),
       db
+        .select({ postId: feed_post_reposts.post_id })
+        .from(feed_post_reposts)
+        .where(
+          and(
+            eq(feed_post_reposts.user_uid, params.userUid),
+            inArray(feed_post_reposts.post_id, postIds),
+          ),
+        ),
+      db
         .select({ followingId: followers.following_id })
         .from(followers)
         .where(
@@ -190,6 +205,7 @@ export async function getFeedPosts(params: {
 
     for (const l of likes) likedSet.add(l.postId);
     for (const b of bookmarks) bookmarkedSet.add(b.postId);
+    for (const r of reposts) repostedSet.add(r.postId);
     for (const f of followings) followingSet.add(f.followingId);
   }
 
@@ -216,9 +232,11 @@ export async function getFeedPosts(params: {
       repostsCount: p.reposts_count,
       sharesCount: p.shares_count,
       viewsCount: p.views_count,
+      giftsCount: p.gifts_count ?? 0,
       createdAt: p.created_at,
       isLiked: likedSet.has(p.post_id),
       isBookmarked: bookmarkedSet.has(p.post_id),
+      isReposted: repostedSet.has(p.post_id),
       isFollowing: followingSet.has(p.author_uid),
     };
   });
@@ -285,6 +303,7 @@ export async function createFeedPost(params: {
       reposts_count: 0,
       shares_count: 0,
       views_count: 0,
+      gifts_count: 0,
       visibility: "public",
       created_at: now,
       updated_at: now,
@@ -334,6 +353,7 @@ export async function createFeedPost(params: {
       repostsCount: 0,
       sharesCount: 0,
       viewsCount: 0,
+      giftsCount: 0,
       createdAt: now,
       isLiked: false,
       isBookmarked: false,
@@ -790,14 +810,14 @@ export async function sendFeedPostGift(params: {
   if (!sender) throw new Error("SENDER_NOT_FOUND");
 
   // Call the unified idempotent transfer engine
-  return await executeWithIdempotency({
+  const transferResult = await executeWithIdempotency({
     senderIdreg: sender.idreg,
     senderUid: params.senderUid,
     senderIp: params.senderIp || "",
     receiverIdreg: post.authorIdreg || 0,
     receiverUid: post.authorUid,
     giftFile: params.giftFile,
-    quantity: params.quantity || 1,
+    quantity: params.quantity ?? 1,
     unitCoin: params.unitCoin,
     userUid: params.senderUid,
     idempotencyKey: params.idempotencyKey,
@@ -805,4 +825,196 @@ export async function sendFeedPostGift(params: {
     targetId: params.postId,
     noteSender: `Gift on feed post ${params.postId}`,
   });
+
+  if (transferResult.ok) {
+    const qty = params.quantity ?? 1;
+    const totalCoin = qty * params.unitCoin;
+    const now = Date.now();
+    try {
+      await db.insert(feed_post_gifts).values({
+        post_id: params.postId,
+        sender_uid: params.senderUid,
+        gift_file: params.giftFile,
+        quantity: qty,
+        unit_coin: params.unitCoin,
+        total_coin: totalCoin,
+        txid: transferResult.data.txid || "",
+        created_at: now,
+      });
+
+      await db
+        .update(feed_posts)
+        .set({ gifts_count: sql`${feed_posts.gifts_count} + ${qty}` })
+        .where(eq(feed_posts.post_id, params.postId));
+    } catch {
+      // ignore gift ledger insert failure if already logged
+    }
+  }
+
+  return transferResult;
+}
+
+export async function togglePostRepost(
+  postId: string,
+  userUid: string,
+): Promise<{ reposted: boolean; repostsCount: number }> {
+  const { db } = getDb();
+  return await db.transaction(async (tx) => {
+    const [post] = await tx
+      .select({ id: feed_posts.id, repostsCount: feed_posts.reposts_count })
+      .from(feed_posts)
+      .where(eq(feed_posts.post_id, postId))
+      .limit(1);
+
+    if (!post) throw new Error("POST_NOT_FOUND");
+
+    const [existing] = await tx
+      .select({ id: feed_post_reposts.id })
+      .from(feed_post_reposts)
+      .where(
+        and(
+          eq(feed_post_reposts.post_id, postId),
+          eq(feed_post_reposts.user_uid, userUid),
+        ),
+      )
+      .limit(1);
+
+    if (existing) {
+      await tx
+        .delete(feed_post_reposts)
+        .where(
+          and(
+            eq(feed_post_reposts.post_id, postId),
+            eq(feed_post_reposts.user_uid, userUid),
+          ),
+        );
+      const [updated] = await tx
+        .update(feed_posts)
+        .set({ reposts_count: sql`GREATEST(0, ${feed_posts.reposts_count} - 1)` })
+        .where(eq(feed_posts.post_id, postId))
+        .returning({ repostsCount: feed_posts.reposts_count });
+      return { reposted: false, repostsCount: updated?.repostsCount ?? 0 };
+    }
+
+    await tx.insert(feed_post_reposts).values({
+      post_id: postId,
+      user_uid: userUid,
+      created_at: Date.now(),
+    });
+
+    const [updated] = await tx
+      .update(feed_posts)
+      .set({ reposts_count: sql`${feed_posts.reposts_count} + 1` })
+      .where(eq(feed_posts.post_id, postId))
+      .returning({ repostsCount: feed_posts.reposts_count });
+
+    return { reposted: true, repostsCount: updated?.repostsCount ?? 1 };
+  });
+}
+
+export interface PostGiftSenderItem {
+  sender: FeedAuthor;
+  giftFile: string;
+  totalQuantity: number;
+  totalCoins: number;
+  lastSentAt: number;
+}
+
+export async function getPostGiftsList(
+  postId: string,
+  requestingUid?: string,
+): Promise<{
+  postId: string;
+  totalGiftsCount: number;
+  gifts: PostGiftSenderItem[];
+}> {
+  const { db } = getDb();
+  const [post] = await db
+    .select({
+      postId: feed_posts.post_id,
+      authorUid: feed_posts.author_uid,
+      giftsCount: feed_posts.gifts_count,
+    })
+    .from(feed_posts)
+    .where(eq(feed_posts.post_id, postId))
+    .limit(1);
+
+  if (!post) throw new Error("POST_NOT_FOUND");
+  if (requestingUid && post.authorUid !== requestingUid) {
+    throw new Error("UNAUTHORIZED_GIFTS_VIEW");
+  }
+
+  const giftRows = await db
+    .select()
+    .from(feed_post_gifts)
+    .where(eq(feed_post_gifts.post_id, postId))
+    .orderBy(desc(feed_post_gifts.created_at));
+
+  if (giftRows.length === 0) {
+    return { postId, totalGiftsCount: post.giftsCount || 0, gifts: [] };
+  }
+
+  const senderUids = [...new Set(giftRows.map((g) => g.sender_uid))];
+  const senderUsers = await db
+    .select({
+      uid: users.uid,
+      idreg: users.idreg,
+      topic: users.topic,
+      username: users.username,
+      pic: users.pic,
+      documentationc: users.documentationc,
+    })
+    .from(users)
+    .where(inArray(users.uid, senderUids));
+
+  const senderMap = new Map<string, FeedAuthor>();
+  for (const u of senderUsers) {
+    if (u.uid) {
+      senderMap.set(u.uid, {
+        uid: u.uid,
+        idreg: Number(u.idreg || 0),
+        topic: u.topic || "مستخدم",
+        username: u.username || "",
+        pic: u.pic || "pic.png",
+        documentationc: Number(u.documentationc || 0),
+      });
+    }
+  }
+
+  // Aggregate by sender_uid + gift_file
+  const aggMap = new Map<string, PostGiftSenderItem>();
+  for (const g of giftRows) {
+    const key = `${g.sender_uid}:::${g.gift_file}`;
+    const existing = aggMap.get(key);
+    if (existing) {
+      existing.totalQuantity += g.quantity;
+      existing.totalCoins += g.total_coin;
+      if (g.created_at > existing.lastSentAt) {
+        existing.lastSentAt = g.created_at;
+      }
+    } else {
+      const sender = senderMap.get(g.sender_uid) || {
+        uid: g.sender_uid,
+        idreg: 0,
+        topic: "مستخدم",
+        username: "",
+        pic: "pic.png",
+        documentationc: 0,
+      };
+      aggMap.set(key, {
+        sender,
+        giftFile: g.gift_file,
+        totalQuantity: g.quantity,
+        totalCoins: g.total_coin,
+        lastSentAt: g.created_at,
+      });
+    }
+  }
+
+  const gifts = [...aggMap.values()].sort((a, b) => b.totalQuantity - a.totalQuantity);
+  return {
+    postId,
+    totalGiftsCount: post.giftsCount || 0,
+    gifts,
+  };
 }

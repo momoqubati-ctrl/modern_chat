@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 /**
  * URL, color, asset-path, and Arabic timestamp helpers.
  */
@@ -164,6 +166,32 @@ export function adjustColorForTheme(
     }
     return rgbToHex(rgb[0], rgb[1], rgb[2]);
   }
+}
+
+export function getUserNameStyle(
+  user: { ucol?: unknown; bg?: unknown; gcol?: unknown },
+  dark: boolean,
+): CSSProperties {
+  const bg = normalizeHexColor(user.bg, "#ffffff");
+  const gradient = normalizeHexColor(user.gcol, "#ffffff");
+  const hasBg = bg.toLowerCase() !== "#ffffff";
+  const hasGradient = gradient.toLowerCase() !== "#ffffff";
+  const hasNameBackground = hasBg || hasGradient;
+
+  return {
+    color: adjustColorForTheme(user.ucol, dark, {
+      fallbackDark: "#38bdf8",
+      fallbackLight: "#0369a1",
+    }),
+    ...(hasNameBackground ? { borderRadius: "0.25rem", paddingInline: "0.125rem" } : {}),
+    ...(hasBg && hasGradient
+      ? { backgroundImage: `linear-gradient(90deg, ${bg}, ${gradient})` }
+      : hasBg
+        ? { backgroundColor: bg }
+        : hasGradient
+          ? { backgroundImage: `linear-gradient(90deg, #ffffff, ${gradient})` }
+          : {}),
+  };
 }
 
 export function isSafeLinkUrl(rawUrl: unknown): boolean {

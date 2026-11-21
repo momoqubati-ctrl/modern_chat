@@ -233,6 +233,16 @@ function NativeVideoSurface({ media, timeGetterRef }: { media: MediaRef; timeGet
     };
     const onHide = () => saveMediaPosition(key, video.currentTime, true);
 
+    // Single deterministic start path. Relying on the `autoplay` attribute
+    // alone leaves the player silently paused on some browsers (and after
+    // StrictMode's dev-only effect re-run). One play() call keeps it exact.
+    const startPlayback = () => {
+      const started = video.play();
+      if (started && typeof started.catch === "function") started.catch(() => {});
+    };
+    if (video.readyState >= 2) startPlayback();
+    else video.addEventListener("canplay", startPlayback, { once: true });
+
     video.addEventListener("timeupdate", onTimeUpdate);
     video.addEventListener("pause", onPause);
     video.addEventListener("ended", onEnded);
@@ -251,6 +261,7 @@ function NativeVideoSurface({ media, timeGetterRef }: { media: MediaRef; timeGet
       video.removeEventListener("timeupdate", onTimeUpdate);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("ended", onEnded);
+      video.removeEventListener("canplay", startPlayback);
       window.removeEventListener("pagehide", onHide);
       if (registerTimeRef) registerTimeRef.current = () => 0;
       try {
@@ -268,7 +279,6 @@ function NativeVideoSurface({ media, timeGetterRef }: { media: MediaRef; timeGet
       ref={videoRef}
       src={media.src}
       controls
-      autoPlay
       playsInline
       preload="auto"
       className="aspect-video w-full bg-black"
@@ -502,6 +512,9 @@ export const MediaMiniPlayer = memo(function MediaMiniPlayer({ dark = true }: { 
         width: `min(${DEFAULT_WIDTH}px, calc(100vw - ${VIEWPORT_MARGIN * 2}px))`,
         transform: `translate3d(${Math.round(posRef.current.x)}px, ${Math.round(posRef.current.y)}px, 0)`,
         willChange: "transform",
+        // Isolate the player's paint/layout so the page scrolling behind it
+        // never invalidates the video compositing layer.
+        contain: "layout paint",
       }}
       onPointerMove={handleShellPointerMove}
       onPointerUp={finishDrag}

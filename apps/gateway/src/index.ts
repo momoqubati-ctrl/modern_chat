@@ -5,7 +5,7 @@ import Redis from "ioredis";
 import { Server, type Socket } from "socket.io";
 import msgpackParser from "socket.io-msgpack-parser";
 import { gatewayConfig } from "./config.js";
-import { createAuthHandlers, disconnectUserSession } from "./handlers/authHandlers.js";
+import { createAuthHandlers, disconnectUserSession, loadInitialStories } from "./handlers/authHandlers.js";
 import { createCallsMediaHandlers } from "./handlers/callsMediaHandlers.js";
 import { createEconomyGamesHandlers } from "./handlers/economyGamesHandlers.js";
 import { createMessagingHandlers } from "./handlers/messagingHandlers.js";
@@ -211,6 +211,41 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
   const profileSocialHandlers = createProfileSocialHandlers(ctx);
   const economyGamesHandlers = createEconomyGamesHandlers(ctx);
   const callsMediaHandlers = createCallsMediaHandlers(ctx);
+
+  const storyFingerprint = (stories: Array<Record<string, unknown>>) =>
+    JSON.stringify(
+      stories.map((story) => [
+        story.sid,
+        Array.isArray(story.item)
+          ? story.item.map((item) =>
+              item && typeof item === "object" ? (item as Record<string, unknown>).id : null,
+            )
+          : [],
+      ]),
+    );
+  let lastStoryFingerprint = "";
+  let storyExpirySweepRunning = false;
+  const runStoryExpirySweep = async () => {
+    if (storyExpirySweepRunning) return;
+    storyExpirySweepRunning = true;
+    try {
+      const activeStories = await loadInitialStories();
+      const nextFingerprint = storyFingerprint(activeStories);
+      if (lastStoryFingerprint && nextFingerprint !== lastStoryFingerprint) {
+        io.emit("msg", { cmd: "stories", data: activeStories });
+      }
+      lastStoryFingerprint = nextFingerprint;
+    } catch (error) {
+      console.error("[Gateway] Story expiry sweep failed:", error);
+    } finally {
+      storyExpirySweepRunning = false;
+    }
+  };
+  void runStoryExpirySweep();
+  const storyExpiryTimer = setInterval(() => {
+    void runStoryExpirySweep();
+  }, 60_000);
+  if (typeof storyExpiryTimer.unref === "function") storyExpiryTimer.unref();
 
   async function emitPresenceSnapshot(socket: Socket): Promise<void> {
     const sess = presenceDirectory.getLocalSession(socket.id);
@@ -716,6 +751,7 @@ export async function startGateway(externalHttpServer?: http.Server): Promise<{ 
   const ludoArenaNsp = registerLudoNamespace(io.of("/ludo"));
 
   const shutdown = async () => {
+    clearInterval(storyExpiryTimer);
     try {
       io.emit("msg", {
         cmd: "reauth_silent",
