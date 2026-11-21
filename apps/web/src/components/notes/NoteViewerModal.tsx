@@ -530,9 +530,20 @@ export function NoteViewerModal({
               </div>
 
               {/* Comment Input Box (Matching Reference Image 3) */}
-              <form onSubmit={handleSendComment} className="relative flex items-center">
+              <form onSubmit={handleSendComment} autoComplete="off" className="relative flex items-center">
                 <input
-                  type="text"
+                  type="search"
+                  name="note_quick_comment"
+                  id="note_quick_comment"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  enterKeyHint="send"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
                   onClick={() => setShowCommentsSheet(true)}

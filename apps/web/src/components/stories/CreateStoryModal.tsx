@@ -350,7 +350,18 @@ export function CreateStoryModal({ dark, open, onClose }: CreateStoryModalProps)
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-slate-400">النص / التعليق</label>
             <input
-              type="text"
+              type="search"
+              name="story_caption_input"
+              id="story_caption_input"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              enterKeyHint="done"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               dir="auto"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}

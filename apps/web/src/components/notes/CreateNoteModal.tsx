@@ -316,6 +316,16 @@ export function CreateNoteModal({ dark, isOpen, onClose, onSuccess }: CreateNote
             <div className="space-y-3">
               <div className="relative">
                 <textarea
+                  name="note_text_content"
+                  id="note_text_content"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   value={textContent}
                   onChange={(e) => setTextContent(e.target.value.slice(0, 120))}
                   placeholder="اكتب ما يدور في بالك (حكمة، دعاء، فكرة، أو شعور)..."
@@ -363,7 +373,18 @@ export function CreateNoteModal({ dark, isOpen, onClose, onSuccess }: CreateNote
                   عنوان أو وسم الملاحظة (مثال: موسيقى، طرب، خاطرة):
                 </label>
                 <input
-                  type="text"
+                  type="search"
+                  name="note_audio_title"
+                  id="note_audio_title"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   value={audioTitle}
                   onChange={(e) => setAudioTitle(e.target.value.slice(0, 30))}
                   placeholder="موسيقى، طرب... 😅✨"

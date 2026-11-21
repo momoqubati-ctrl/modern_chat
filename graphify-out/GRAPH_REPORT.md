@@ -1,7 +1,7 @@
 # Graph Report - newchat  (2026-11-21)
 
 ## Corpus Check
-- 315 files · ~599,975 words
+- 315 files · ~600,047 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 12 file(s) not represented in the graph (top: .css 5, .example 1, (none) 1)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8cd3659d`
+- Built from commit: `6467d13e`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -772,7 +772,7 @@ Nodes (3): Correct, Incorrect, Strategic Suspense Boundaries for Lazy Loading
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `useChatStore` connect `core-client/src/index.ts` to `NewChatSocketClient`, `src/components/PrivateChatDock.tsx`, `NewChatApiClient`, `useChatStore.ts`, `src/components/ChatRoomWorkspace.tsx`, `apps-web-src/pages/CarromArenaPage.tsx`, `src/lib/mediaUrl.ts`, `useChatStore`, `apps-web-src/components/UserProfileModal.tsx`, `ref_react`, `src/App.tsx`, `LudoArenaClient`, `apps-web-src/lib/mediaUrl.ts`, `apps-web-src/components/ChatRoomWorkspace.tsx`, `apps-web-src/components/PrivateChatDock.tsx`, `CarromGameExperience.tsx`, `src/lib/permissions.ts`, `CarromArenaClient`, `MemberAvatar`, `apps-web-src/lib/soundFx.ts`, `CarromGameExperience`, `shared/src/index.ts`, `apps-web-src/components/WalletTopupModal.tsx`, `FilterService`?**
-  _High betweenness centrality (0.063) - this node is a cross-community bridge._
+  _High betweenness centrality (0.064) - this node is a cross-community bridge._
 - **What connects `@newchat/db`, `@newchat/gateway`, `@newchat/shared` to the rest of the system?**
   _68 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `PresenceDirectory` be split into smaller, more focused modules?**

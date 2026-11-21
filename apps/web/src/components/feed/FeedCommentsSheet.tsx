@@ -369,7 +369,18 @@ export function FeedCommentsSheet({
           >
             <input
               ref={inputRef}
-              type="text"
+              type="search"
+              name="feed_comment_input"
+              id="feed_comment_input"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              enterKeyHint="send"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={handleKeyDown}

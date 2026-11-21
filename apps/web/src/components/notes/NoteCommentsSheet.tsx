@@ -741,7 +741,18 @@ export function NoteCommentsSheet({
               >
                 <input
                   ref={inputRef}
-                  type="text"
+                  type="search"
+                  name="note_comment_input"
+                  id="note_comment_input"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  enterKeyHint="send"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
                   dir="auto"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}

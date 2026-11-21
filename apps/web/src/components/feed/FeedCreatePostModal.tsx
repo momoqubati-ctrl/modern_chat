@@ -217,6 +217,16 @@ export function FeedCreatePostModal({
               </span>
             </div>
             <textarea
+              name="feed_post_caption"
+              id="feed_post_caption"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="اكتب وصفاً للمنشور مع هاشتاجات... #اكسبلور #يوميات #تصويري"
@@ -270,7 +280,18 @@ export function FeedCreatePostModal({
               <span>اسم المقطع الصوتي (اختياري)</span>
             </label>
             <input
-              type="text"
+              type="search"
+              name="feed_music_title"
+              id="feed_music_title"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              enterKeyHint="done"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-form-type="other"
               value={musicTitle}
               onChange={(e) => setMusicTitle(e.target.value)}
               placeholder="اسم المقطع الصوتي أو الأغنية المصاحبة..."
